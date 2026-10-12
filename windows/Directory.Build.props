@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <Product>StickerSense</Product>
+    <Company>StickerSense</Company>
+    <Version>1.0.0</Version>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+
+  <!--
+    SixLabors.ImageSharp is pinned to 3.1.12 because 4.x refuses to build in Release without a
+    Six Labors license key. The open 3.1.x advisories are in code paths StickerSense never reaches:
+    ImagePrep registers only the PNG, GIF, WebP, JPEG and BMP codecs (no TIFF decoder or encoder),
+    decodes with SkipMetadata (ICC profiles aren't read), and never runs HistogramEqualization.
+    Move to ImageSharp >= 4.1.2 (and drop these lines) once a license key is set up.
+  -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" /> <!-- ICC CLUT parsing -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" /> <!-- HistogramEqualization -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" /> <!-- TIFF CCITT T4 encoder -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" /> <!-- TIFF CCITT T6 encoder -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" /> <!-- BigTIFF decoder -->
+  </ItemGroup>
+</Project>

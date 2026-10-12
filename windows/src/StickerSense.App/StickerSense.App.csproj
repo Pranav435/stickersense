@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>StickerSense.App</RootNamespace>
+    <AssemblyName>StickerSense</AssemblyName>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>StickerSense.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <StartupObject>StickerSense.App.Program</StartupObject>
+    <!-- The DirectML / GenAI native libraries ship for these two. -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- WFAC010 suggests moving DPI settings out of app.manifest; that only applies to WinForms-started
+         apps. This is a WPF app (WinForms is just the tray icon), and WPF reads DPI awareness from the manifest. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <!-- WinForms is only used for the tray icon; keep its names out of the way of WPF's. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntimeGenAI.DirectML" Version="0.14.1" />
+    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\StickerSense.Core\StickerSense.Core.csproj" />
+  </ItemGroup>
+
+  <!-- The app icon, also used by the windows and the notification-area icon. Made from the Mac
+       icon by tests/StickerSense.Core.Tests/AppIconTests.cs. -->
+  <ItemGroup>
+    <Resource Include="StickerSense.ico" />
+  </ItemGroup>
+
+  <!-- Optional: drop nvdaControllerClient.dll next to the project to have it copied to the output. -->
+  <ItemGroup>
+    <None Include="nvdaControllerClient.dll" Condition="Exists('nvdaControllerClient.dll')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Not needed at run time: DirectML's debug layer and symbols, and the C++ import libraries. -->
+  <Target Name="RemoveNativeBuildExtras" AfterTargets="Publish">
+    <Delete Files="$(PublishDir)DirectML.Debug.dll;$(PublishDir)DirectML.Debug.pdb;$(PublishDir)DirectML.pdb;$(PublishDir)onnxruntime.lib;$(PublishDir)onnxruntime-genai.lib" />
+  </Target>
+
+</Project>

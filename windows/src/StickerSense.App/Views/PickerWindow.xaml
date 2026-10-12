@@ -1,0 +1,88 @@
+<Window x:Class="StickerSense.App.Views.PickerWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sticker Picker"
+        Width="640" Height="520" MinWidth="420" MinHeight="320"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize" ShowInTaskbar="True"
+        FocusManager.FocusedElement="{Binding ElementName=SearchBox}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+        <ContextMenu x:Key="ItemMenu" AutomationProperties.Name="Sticker actions">
+            <MenuItem Header="_Paste into chat" InputGestureText="Enter" Click="PasteMenu_Click" />
+            <MenuItem Header="_Describe in detail" InputGestureText="Ctrl+D" Click="DetailMenu_Click" />
+            <MenuItem Header="_Copy" InputGestureText="Ctrl+C" Click="CopyMenu_Click" />
+            <MenuItem Header="_Remove from library" InputGestureText="Delete" Click="RemoveMenu_Click"
+                      Visibility="{Binding IsLibrary, Converter={StaticResource VisibleWhen}}" />
+        </ContextMenu>
+    </Window.Resources>
+
+    <DockPanel Margin="14">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="180" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Label Content="_Search stickers" Target="{Binding ElementName=SearchBox}" Padding="0,0,0,4" />
+            <TextBox x:Name="SearchBox" Grid.Row="1"
+                     Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Search stickers"
+                     AutomationProperties.HelpText="Type what the sticker shows, says or means, for example birthday, lol or thank you. Press Enter to paste the first result, or Down Arrow to go to the list."
+                     PreviewKeyDown="SearchBox_PreviewKeyDown" />
+
+            <Label Grid.Column="2" Content="Show stickers _from" Target="{Binding ElementName=SourceBox}" Padding="0,0,0,4" />
+            <ComboBox x:Name="SourceBox" Grid.Row="1" Grid.Column="2"
+                      ItemsSource="{Binding Filters}"
+                      DisplayMemberPath="Title"
+                      SelectedValuePath="Value"
+                      SelectedValue="{Binding Filter}"
+                      AutomationProperties.Name="Show stickers from" />
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,10,0,0" Text="{Binding Status}" TextWrapping="Wrap" />
+
+        <ListBox x:Name="Results"
+                 ItemsSource="{Binding Items}"
+                 SelectedItem="{Binding Selected}"
+                 AutomationProperties.Name="Stickers"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 PreviewKeyDown="Results_PreviewKeyDown"
+                 MouseDoubleClick="Results_MouseDoubleClick">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                    <Setter Property="AutomationProperties.HelpText" Value="Enter pastes it into your chat. Shift F10 for more actions." />
+                    <Setter Property="ContextMenu" Value="{StaticResource ItemMenu}" />
+                    <Setter Property="Padding" Value="4" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsLoadMore}" Value="True">
+                            <Setter Property="AutomationProperties.HelpText" Value="Enter loads more stickers and GIFs from GIPHY." />
+                            <Setter Property="ContextMenu" Value="{x:Null}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Decorative: a Border has no automation peer, so the picture isn't announced. -->
+                        <Border Width="56" Height="56">
+                            <Border.Background>
+                                <ImageBrush ImageSource="{Binding Thumbnail}" Stretch="Uniform" />
+                            </Border.Background>
+                        </Border>
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="480" Text="{Binding Label}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>

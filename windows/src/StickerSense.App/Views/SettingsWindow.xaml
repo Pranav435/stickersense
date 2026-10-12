@@ -1,0 +1,121 @@
+<Window x:Class="StickerSense.App.Views.SettingsWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="StickerSense Settings"
+        Width="620" Height="720" MinWidth="460" MinHeight="400"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize" ShowInTaskbar="True">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,4" />
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="Padding" Value="0,8,0,2" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="Margin" Value="0,4,8,4" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Button DockPanel.Dock="Bottom" Content="Close" IsCancel="True" HorizontalAlignment="Right" Margin="14" Click="Close_Click" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,14,14,0" Focusable="False">
+            <StackPanel>
+                <GroupBox Header="Describing">
+                    <StackPanel>
+                        <CheckBox x:Name="FirstControl" Content="_Describe stickers and GIFs automatically when focus lands on them"
+                                  IsChecked="{Binding Settings.AutoDescribe}" />
+                        <Label Content="_Watch for stickers in" Target="{Binding ElementName=ScopeBox}" />
+                        <ComboBox x:Name="ScopeBox" ItemsSource="{Binding AutoScopes}" DisplayMemberPath="Title" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Settings.AutoScope}" IsEnabled="{Binding Settings.AutoDescribe}"
+                                  AutomationProperties.Name="Watch for stickers in" />
+                        <CheckBox Content="Add what the sticker _means to short descriptions" IsChecked="{Binding Settings.IncludeMeaning}" />
+                        <CheckBox Content="_Type two colons (::) in a chat to open the sticker picker" IsChecked="{Binding Settings.ColonTrigger}"
+                                  AutomationProperties.HelpText="The colons are replaced by the sticker you pick. Press Escape to keep them as typed." />
+                        <TextBlock Margin="24,0,0,4" TextWrapping="Wrap" Text="The colons are replaced by the sticker you pick. Press Escape to keep them as typed." />
+                        <Label Content="_Run the description model on" Target="{Binding ElementName=DeviceBox}" />
+                        <ComboBox x:Name="DeviceBox" ItemsSource="{Binding Devices}" DisplayMemberPath="Title" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Settings.EngineDevice}"
+                                  AutomationProperties.Name="Run the description model on"
+                                  AutomationProperties.HelpText="Everything stays on this computer either way. The graphics card is usually much faster." />
+                        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding EngineSummary}" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Sounds and speech">
+                    <StackPanel>
+                        <CheckBox Content="_Play quiet sounds while working and before speaking" IsChecked="{Binding Settings.Earcons}" />
+                        <Label Content="Sound _volume" Target="{Binding ElementName=VolumeSlider}" />
+                        <Slider x:Name="VolumeSlider" Minimum="5" Maximum="100" SmallChange="5" LargeChange="10"
+                                TickFrequency="5" IsSnapToTickEnabled="True"
+                                Value="{Binding Settings.VolumePercent}" IsEnabled="{Binding Settings.Earcons}"
+                                AutomationProperties.Name="Sound volume, percent" />
+                        <Label Content="_Speak descriptions with" Target="{Binding ElementName=SpeechBox}" />
+                        <ComboBox x:Name="SpeechBox" ItemsSource="{Binding SpeechOutputs}" DisplayMemberPath="Title" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Settings.SpeechOutput}"
+                                  AutomationProperties.Name="Speak descriptions with" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Keyboard shortcuts: Control Alt Shift plus a key">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="90" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Label Content="Describe what has _focus (press twice for detail)" Target="{Binding ElementName=DescribeKeyBox}" />
+                        <ComboBox x:Name="DescribeKeyBox" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding Keys}" SelectedItem="{Binding Settings.DescribeKey}"
+                                  AutomationProperties.Name="Describe what has focus: Control Alt Shift plus" />
+                        <Label Grid.Row="1" Content="Open the sticker _picker" Target="{Binding ElementName=PickerKeyBox}" />
+                        <ComboBox x:Name="PickerKeyBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding Keys}" SelectedItem="{Binding Settings.PickerKey}"
+                                  AutomationProperties.Name="Open the sticker picker: Control Alt Shift plus" />
+                        <Label Grid.Row="2" Content="Open sticker _history" Target="{Binding ElementName=HistoryKeyBox}" />
+                        <ComboBox x:Name="HistoryKeyBox" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding Keys}" SelectedItem="{Binding Settings.HistoryKey}"
+                                  AutomationProperties.Name="Open sticker history: Control Alt Shift plus" />
+                        <Label Grid.Row="3" Content="Turn automatic descriptions _on or off" Target="{Binding ElementName=AutoKeyBox}" />
+                        <ComboBox x:Name="AutoKeyBox" Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding Keys}" SelectedItem="{Binding Settings.AutoToggleKey}"
+                                  AutomationProperties.Name="Turn automatic descriptions on or off: Control Alt Shift plus" />
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Sticker picker">
+                    <StackPanel>
+                        <TextBlock TextWrapping="Wrap" Text="{Binding LibrarySummary}" />
+                        <Button Content="_Import WhatsApp Stickers" Click="Import_Click" IsEnabled="{Binding WhatsAppInstalled}"
+                                AutomationProperties.HelpText="Adds the stickers WhatsApp Desktop has saved on this computer to the picker. WhatsApp's files are only read, never changed." />
+                        <TextBlock TextWrapping="Wrap" Text="{Binding App.ImportStatus}" />
+                        <Label Content="_GIPHY API key" Target="{Binding ElementName=GiphyBox}" />
+                        <PasswordBox x:Name="GiphyBox" LostKeyboardFocus="GiphyBox_LostKeyboardFocus"
+                                     AutomationProperties.Name="GIPHY API key"
+                                     AutomationProperties.HelpText="Needed to search GIPHY. Get a free key at developers dot giphy dot com. It's stored encrypted for your Windows account." />
+                        <Button Content="Get a free GIPHY API _key" Click="GiphyLink_Click"
+                                AutomationProperties.HelpText="Opens developers dot giphy dot com in your web browser." />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="General">
+                    <StackPanel>
+                        <CheckBox Content="Open StickerSense when I sign _in" IsChecked="{Binding Settings.LaunchAtLogin}" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Run _Setup Again…" Click="Setup_Click" />
+                            <Button Content="Show Activity _Log" Click="Log_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

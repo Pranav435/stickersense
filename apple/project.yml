@@ -1,0 +1,161 @@
+name: StickerSense
+options:
+  bundleIdPrefix: com.pranavsavla
+  deploymentTarget:
+    macOS: "27.0"
+    iOS: "27.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "2"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Set your own team to sign for devices; the Mac build script re-signs with a stable identity.
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  StickerKit:
+    path: StickerKit
+
+targets:
+  StickerSense:
+    type: application
+    platform: macOS
+    sources:
+      - path: Mac
+        excludes: ["Info.plist", "*.entitlements"]
+    dependencies:
+      - package: StickerKit
+    info:
+      path: Mac/Info.plist
+      properties:
+        CFBundleDisplayName: StickerSense
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: "27.0"
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: "StickerSense — describes stickers for screen reader users."
+        NSAppleEventsUsageDescription: "StickerSense asks VoiceOver where its cursor is and what it's on, so it can describe the sticker you're on."
+    entitlements:
+      path: Mac/StickerSense.entitlements
+      properties:
+        com.apple.security.automation.apple-events: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pranavsavla.StickerSense
+        PRODUCT_NAME: StickerSense
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES
+
+  StickerSenseiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS
+        excludes: ["Info.plist", "*.entitlements"]
+      - iOSShared
+      - iOSCommon
+    dependencies:
+      - package: StickerKit
+      - target: StickerSenseShare
+      - target: StickerSenseControls
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: StickerSense
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        LSApplicationQueriesSchemes: [shortcuts]
+    entitlements:
+      path: iOS/StickerSense.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.pranavsavla.StickerSense]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pranavsavla.StickerSense
+        PRODUCT_NAME: StickerSense
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+
+  StickerSenseShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: iOSShare
+        excludes: ["Info.plist", "*.entitlements"]
+      - iOSCommon
+    dependencies:
+      - package: StickerKit
+    info:
+      path: iOSShare/Info.plist
+      properties:
+        CFBundleDisplayName: StickerSense
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+              NSExtensionActivationSupportsFileWithMaxCount: 1
+    entitlements:
+      path: iOSShare/StickerSenseShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.pranavsavla.StickerSense]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pranavsavla.StickerSense.Share
+        CODE_SIGN_STYLE: Automatic
+
+  StickerSenseControls:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: iOSControls
+        excludes: ["Info.plist"]
+      - iOSShared
+    info:
+      path: iOSControls/Info.plist
+      properties:
+        CFBundleDisplayName: StickerSense
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pranavsavla.StickerSense.Controls
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  StickerSense:
+    build:
+      targets:
+        StickerSense: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  StickerSenseiOS:
+    build:
+      targets:
+        StickerSenseiOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release

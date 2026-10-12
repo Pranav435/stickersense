@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# Never commit the model or the NVDA controller client
+models/
+nvdaControllerClient*.dll

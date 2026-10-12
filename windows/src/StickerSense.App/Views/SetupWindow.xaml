@@ -1,0 +1,91 @@
+<Window x:Class="StickerSense.App.Views.SetupWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:StickerSense.App.Views"
+        Title="StickerSense Setup"
+        Width="680" Height="760" MinWidth="460" MinHeight="420"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize" ShowInTaskbar="True">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+        <!-- Status lines are read-only text boxes so Tab reaches them and screen readers read them out. -->
+        <Style x:Key="Status" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Margin" Value="0,2,0,4" />
+        </Style>
+        <Style x:Key="Heading1" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="AutomationProperties.HeadingLevel" Value="Level1" />
+        </Style>
+        <Style x:Key="Heading2" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="0,16,0,6" />
+            <Setter Property="AutomationProperties.HeadingLevel" Value="Level2" />
+        </Style>
+        <Style x:Key="RowTitle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,10,0,0" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="Margin" Value="0,2,8,2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Button x:Name="DoneButton" DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="14" IsDefault="True"
+                Content="{Binding DoneTitle}" Click="Done_Click" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,18,18,0" Focusable="False">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Heading1}" Text="Welcome to StickerSense" />
+                <TextBox x:Name="Intro" Style="{StaticResource Status}" Text="{Binding Intro, Mode=OneWay}"
+                         AutomationProperties.Name="About StickerSense" />
+
+                <TextBlock Style="{StaticResource Heading2}" Text="Checklist" />
+
+                <TextBlock Style="{StaticResource RowTitle}" Text="Description model" />
+                <TextBox Style="{StaticResource Status}" Text="{Binding Model.Text, Mode=OneWay}" AutomationProperties.Name="{Binding Model.AccessibleName}" />
+                <ProgressBar Height="14" Minimum="0" Maximum="100" Value="{Binding DownloadPercent, Mode=OneWay}"
+                             Visibility="{Binding Downloading, Converter={StaticResource VisibleWhen}}"
+                             AutomationProperties.Name="Model download progress" />
+                <WrapPanel Visibility="{Binding CanDownload, Converter={StaticResource VisibleWhen}}">
+                    <Button Content="{Binding GpuDownloadTitle}" Click="DownloadGpu_Click"
+                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for DirectML from Hugging Face. Runs on this computer only." />
+                    <Button Content="{Binding CpuDownloadTitle}" Click="DownloadCpu_Click"
+                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for the processor from Hugging Face. Slower, but works on any computer with 16 gigabytes of memory." />
+                </WrapPanel>
+                <Button Content="_Cancel Download" Click="CancelDownload_Click"
+                        Visibility="{Binding Downloading, Converter={StaticResource VisibleWhen}}" />
+
+                <TextBlock Style="{StaticResource RowTitle}" Text="Screen reader" />
+                <TextBox Style="{StaticResource Status}" Text="{Binding ScreenReader.Text, Mode=OneWay}" AutomationProperties.Name="{Binding ScreenReader.AccessibleName}" />
+                <Button Content="_Open the StickerSense Folder" Click="OpenFolder_Click"
+                        Visibility="{Binding NeedsNvdaDll, Converter={StaticResource VisibleWhen}}"
+                        AutomationProperties.HelpText="Opens the folder where nvdaControllerClient.dll goes." />
+
+                <TextBlock Style="{StaticResource RowTitle}" Text="Text recognition" />
+                <TextBox Style="{StaticResource Status}" Text="{Binding TextRecognition.Text, Mode=OneWay}" AutomationProperties.Name="{Binding TextRecognition.AccessibleName}" />
+
+                <TextBlock Style="{StaticResource RowTitle}" Text="WhatsApp stickers" />
+                <TextBox Style="{StaticResource Status}" Text="{Binding WhatsApp.Text, Mode=OneWay}" AutomationProperties.Name="{Binding WhatsApp.AccessibleName}" />
+                <Button Content="_Import WhatsApp Stickers" Click="Import_Click"
+                        Visibility="{Binding CanImport, Converter={StaticResource VisibleWhen}}" />
+
+                <TextBlock Style="{StaticResource Heading2}" Text="Try it" />
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,18">
+                    <views:PracticeSticker x:Name="Practice" AutomationProperties.HelpText="{Binding PracticeHint}" />
+                    <TextBox Style="{StaticResource Status}" Width="420" Margin="16,0,0,0" VerticalAlignment="Center"
+                             Text="{Binding PracticeText, Mode=OneWay}" AutomationProperties.Name="How to practise" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
