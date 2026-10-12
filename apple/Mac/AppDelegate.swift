@@ -282,6 +282,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func menuSetup() { showSetup() }
 
     /// Speaks the shortcuts — there's no way to glance at them without sight.
+    static let donationURL = URL(string: "https://paypal.me/theblindiephoenix")!
+
+    @objc func openDonation() {
+        NSWorkspace.shared.open(Self.donationURL)
+    }
+
     @objc func menuHelp() {
         let text = """
         StickerSense shortcuts. \(settings.describeCombo.spokenName): describe what the VoiceOver cursor is on; press it again within 3 seconds for more detail. \
@@ -343,6 +349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let help = NSMenu(title: "Help")
         help.addItem(menuItem("What Can StickerSense Do?", #selector(menuHelp), key: "?"))
+        help.addItem(.separator())
+        help.addItem(menuItem("Support StickerSense (Donate)…", #selector(openDonation)))
         main.addItem(submenu: help)
         NSApp.helpMenu = help
 

@@ -9,7 +9,13 @@
 
 ### Install
 
-Build it yourself (see Building) or run the installed copy at `~/Applications/StickerSense.app`.
+Install with Homebrew:
+
+```sh
+brew install --cask pranav435/tap/stickersense
+```
+
+Or download `StickerSense.zip` from the [latest release](https://github.com/Pranav435/stickersense/releases/latest), or build it yourself (see Building). StickerSense isn't notarized yet, so the first launch needs one extra step: open it once, then go to System Settings › Privacy & Security and choose Open Anyway.
 
 Open StickerSense like any app, for example from Spotlight, and its main window appears. The window shows what StickerSense is doing, has buttons for the picker, history, settings and setup, and lists every shortcut. While any StickerSense window is open, StickerSense is in Command-Tab and the Dock, with its own menu bar. When you close its windows, it keeps running quietly in the menu bar (press VO-M twice to reach it), so stickers keep being described. When it starts at login, it stays in the menu bar without opening a window.
 

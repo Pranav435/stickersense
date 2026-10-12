@@ -43,13 +43,20 @@ rsync -a --delete --exclude '.build' --exclude '*.xcodeproj' --exclude '.swiftpm
 cd "$STAGE/src"
 xcodegen generate --quiet
 
+# STICKERSENSE_VERSION (e.g. 1.2.0) overrides the version; the build number is the commit count.
+VERSION_ARGS=()
+if [[ -n "${STICKERSENSE_VERSION:-}" ]]; then
+  VERSION_ARGS=(MARKETING_VERSION="$STICKERSENSE_VERSION" CURRENT_PROJECT_VERSION="$(git -C "$ROOT" rev-list --count HEAD)")
+fi
+
 xcodebuild -project StickerSense.xcodeproj -scheme StickerSense -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED" -destination 'platform=macOS' \
-  CODE_SIGNING_ALLOWED=NO build -quiet
+  CODE_SIGNING_ALLOWED=NO "${VERSION_ARGS[@]}" build -quiet
 
 APP="$DERIVED/Build/Products/$CONFIG/StickerSense.app"
 mkdir -p "$INSTALL_DIR"
-pkill -x StickerSense 2>/dev/null || true
+# Only replace the running copy when installing over it, not for release builds elsewhere.
+[[ "$INSTALL_DIR" == "$HOME/Applications" ]] && { pkill -x StickerSense 2>/dev/null || true; }
 rm -rf "$INSTALL_DIR/StickerSense.app"
 ditto "$APP" "$INSTALL_DIR/StickerSense.app"
 xattr -cr "$INSTALL_DIR/StickerSense.app"

@@ -8,6 +8,8 @@ StickerSense describes stickers, GIFs and pictures out loud, in any app, for peo
 >
 > That's a real description, straight from StickerSense's own tests.
 
+Free, no ads, no tracking. If it saves you from answering a crying sticker with "lol", [buy its developer a coffee](#donate).
+
 ## What it does
 
 - **Describes what you're on.** Put the VoiceOver cursor on a sticker and press Option Shift Command D. You hear a short description. Press it again within 3 seconds and you get the director's cut: colours, art style, what moves, and what people mean when they send it.
@@ -35,7 +37,34 @@ It also stays out of VoiceOver's way. It only checks the cursor after you press 
 - **iPhone and iPad** (iOS 27 or later, Apple Intelligence). iOS won't let apps see the screen or the VoiceOver cursor, so it works through a Back Tap or Action button shortcut that describes the stickers on screen, newest first. There's also a share sheet option, Control Center controls and the picker. It builds; it hasn't been tested on a device yet.
 - **Windows** (10 and 11, with NVDA, JAWS or Narrator). Same idea and same shortcuts with Control Alt Shift, using a bundled on-device vision model (Phi-3.5-vision). It builds and its core is tested, but nobody has run it on Windows yet. If you do, please report what happens.
 
-## Getting started on a Mac
+## Install on a Mac
+
+With [Homebrew](https://brew.sh), and `brew upgrade` keeps it current:
+
+```sh
+brew install --cask pranav435/tap/stickersense
+```
+
+Or by hand: download `StickerSense.zip` from [Releases](https://github.com/Pranav435/stickersense/releases/latest), unzip it, and move StickerSense to Applications.
+
+Either way, the first launch takes one extra step because the app isn't notarized. Notarizing costs $99 a year, and StickerSense costs nothing ([Donate](#donate) has a plan for that). Open StickerSense once, then go to System Settings › Privacy & Security and choose **Open Anyway**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/StickerSense.app
+```
+
+Requires macOS 27 or later on Apple silicon, with Apple Intelligence turned on.
+
+When it opens, the Setup window asks you to:
+
+- allow VoiceOver to be controlled with AppleScript (in VoiceOver Utility, General);
+- give Screen Recording and Accessibility permission;
+- optionally import your WhatsApp stickers;
+- try it out on a practice sticker.
+
+The full guide, troubleshooting included, is in [apple/README.md](apple/README.md). For Windows, see [windows/README.md](windows/README.md).
+
+## Build it yourself
 
 You'll need Xcode 27 and XcodeGen (`brew install xcodegen`).
 
@@ -45,13 +74,8 @@ You'll need Xcode 27 and XcodeGen (`brew install xcodegen`).
    STICKERSENSE_SIGN_IDENTITY="<certificate SHA-1>" apple/scripts/build-mac.sh
    ```
    That builds StickerSense, puts it in `~/Applications` and opens it.
-3. Follow the Setup window. It asks you to:
-   - allow VoiceOver to be controlled with AppleScript (in VoiceOver Utility, General);
-   - give Screen Recording and Accessibility permission;
-   - optionally import your WhatsApp stickers;
-   - try it out on a practice sticker.
 
-The full guide, troubleshooting included, is in [apple/README.md](apple/README.md). For Windows, see [windows/README.md](windows/README.md).
+Releases come from `apple/scripts/release-mac.sh <version>`. It runs the tests, builds and zips the app, publishes the GitHub release and updates the Homebrew cask.
 
 ## Shortcuts
 
@@ -91,6 +115,29 @@ To run the tests, use `swift test` in `apple/StickerKit`; add `STICKERSENSE_MODE
 ## Contributing
 
 Bug reports from screen reader users help the most. Was something slow, wrong, too chatty or silent? Open an issue and include the relevant lines from `~/Library/Logs/StickerSense.log`. If you have a Windows PC and NVDA, you could be the first person ever to run the Windows version, which is quite a title.
+
+## Donate
+
+StickerSense has no ads, no account, no subscription and no analytics, and it describes everything on your own device. This section is the only part of the project that wants anything from you.
+
+Notarization fund: **$0 of $99**.
+
+| Send | What it does |
+|---|---|
+| [A sticker, $3](https://paypal.me/theblindiephoenix/3USD) | Covers one coffee and one bug fix, in that order |
+| [A GIF, $5](https://paypal.me/theblindiephoenix/5USD) | About the price of a café coffee, which lasts an afternoon. A cached sticker description lasts forever |
+| [A whole sticker pack, $20](https://paypal.me/theblindiephoenix/20USD) | Fuels a whole feature, from the first idea to the 2 AM bug it ships with |
+| [A year of notarization, $99](https://paypal.me/theblindiephoenix/99USD) | Goes toward Apple's developer fee, so StickerSense can be notarized: "Open Anyway" disappears for everyone, and it can join Homebrew's main cask list |
+| [Your own amount](https://paypal.me/theblindiephoenix) | All currencies are converted to coffee at a fair rate |
+
+If StickerSense has ever told you what a sticker meant before you replied, that's about one coffee's worth. Can't spare the money? A star on the repo costs nothing, and yes, someone checks.
+
+### Fueled by
+
+Add a note to your PayPal payment if you'd like your name here.
+
+<!-- donors: scripts/donation.sh adds names below this line -->
+Nobody has sent a sticker yet, so the first name here could be yours.
 
 ## License
 

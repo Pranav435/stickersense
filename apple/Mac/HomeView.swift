@@ -48,6 +48,12 @@ struct HomeView: View {
             } footer: {
                 Text("StickerSense keeps running in the menu bar when this window is closed.")
             }
+
+            Section {
+                Link("Support StickerSense with a donation", destination: AppDelegate.donationURL)
+                Text("StickerSense is free, with no ads and no tracking. Donations go toward notarizing it, so the first launch stops needing Open Anyway.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(minWidth: 460, minHeight: 520)
