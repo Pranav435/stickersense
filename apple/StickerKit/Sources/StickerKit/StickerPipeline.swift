@@ -90,6 +90,9 @@ public struct StickerPipeline: Sendable {
         let ocr = await TextReader.read(ImagePrep.flattened(first))
         let reading = try await describer.read(frames: frames, context: .file, ocrText: ocr)
         await library.setReading(reading, ocrText: ocr, for: record.id)
+        if let url = await library.imageURL(for: record), let all = try? ImagePrep.frames(from: url, maxFrames: 16), all.count > 1 {
+            await library.setFrameFingerprints(from: all, for: record.id)
+        }
         return await library.record(record.id) ?? record
     }
 

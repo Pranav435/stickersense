@@ -158,7 +158,7 @@ public actor PickerSearch {
         case .giphy(let gif):
             guard let reading = readings[item.id]?.reading,
                   let url = await download(gif.originalURL, name: "\(gif.id).gif"),
-                  let frames = try? ImagePrep.frames(from: url, maxFrames: 8), let first = frames.first else { return }
+                  let frames = try? ImagePrep.frames(from: url, maxFrames: 16), let first = frames.first else { return }
             let record = await library.remember(frames: frames, fingerprint: Fingerprint(first), reading: reading, ocrText: "", source: .giphy(id: gif.id), remoteURL: gif.originalURL)
             await library.markSent(record.id)
         case .loadMore:

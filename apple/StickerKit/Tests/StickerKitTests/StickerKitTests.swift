@@ -438,3 +438,86 @@ struct RaceTests {
         #expect(await Race.value(of: fast, timeout: .seconds(1)) == 42)
     }
 }
+
+@Suite("GIFs")
+struct GIFTests {
+    @Test func ownGIFLabelsCount() {
+        let size = CGSize(width: 517, height: 515)
+        #expect(LabelClassifier.classify(label: "\u{200E}Your GIF, 14:19, \u{200E}Sent to Family Group, \u{200E}Sent", size: size, isImageElement: false) == .gif)
+        #expect(LabelClassifier.classify(label: "Your sticker, 14:19, Sent to Family Group, Read", size: size, isImageElement: false) == .sticker)
+        #expect(LabelClassifier.classify(label: "Message from Ana, can you send me your sticker, 15:49", size: size, isImageElement: false) == .notSticker)
+    }
+
+    @Test func strayLettersAreNotStickerText() {
+        let lines = [TextReader.Line(text: "V", box: .zero), TextReader.Line(text: "OK!", box: .zero)]
+        #expect(TextReader.text(of: lines, label: nil) == "OK!")
+    }
+
+    @Test func sentGIFIsRecognisedFromAnyFrames() async {
+        let library = StickerLibrary(directory: Fixtures.tempDirectory())
+        // A "GIF" of 6 frames, as sent from the picker.
+        let gif = (0..<6).map { i in Fixtures.sticker(i < 3 ? "🐱" : "😻", caption: "hi!", emojiX: 0.02 + Double(i) * 0.08) }
+        let record = await library.remember(frames: gif, fingerprint: Fingerprint(gif[0]),
+                                            reading: StickerReading(kind: .gif, subject: "Cat slides right", animated: true),
+                                            ocrText: "hi!", source: .giphy(id: "g1"))
+        #expect((record.frameFingerprints?.count ?? 0) == 6)
+        // Later, the chat shows it smaller, starting mid-loop.
+        let seen = [gif[2], gif[3], gif[5]].map { Fingerprint(Fixtures.onScreenCapture(of: $0, scale: 0.5)) }
+        #expect(await library.matchAnimated(seen)?.id == record.id)
+        // A different animation doesn't match.
+        let other = ["🐶", "🐕", "🦮"].map { Fingerprint(Fixtures.sticker($0)) }
+        #expect(await library.matchAnimated(other) == nil)
+    }
+}
+
+@Suite("Recently sent")
+struct RecentlySentTests {
+    @Test func stillPreviewOfASentGIFIsRecognised() async {
+        let library = StickerLibrary(directory: Fixtures.tempDirectory())
+        let gif = (0..<4).map { i in Fixtures.sticker("🐱", caption: "hi!", emojiX: 0.02 + Double(i) * 0.1) }
+        let record = await library.remember(frames: gif, fingerprint: Fingerprint(gif[0]),
+                                            reading: StickerReading(kind: .gif, subject: "Cat slides right", animated: true),
+                                            ocrText: "", source: .giphy(id: "g2"))
+        // Not sent yet: no match.
+        let preview = Fingerprint(Fixtures.onScreenCapture(of: gif[0], scale: 0.6))
+        #expect(await library.matchRecentlySent(preview) == nil)
+        await library.markSent(record.id)
+        #expect(await library.matchRecentlySent(preview)?.id == record.id)
+        // Something unrelated isn't mistaken for it.
+        #expect(await library.matchRecentlySent(Fingerprint(Fixtures.sticker("🎂", caption: "yay"))) == nil)
+    }
+}
+
+@Suite("One GIF, one description")
+struct GIFConsistencyTests {
+    @Test func pausedPreviewCopyIsFoldedIntoTheAnimatedRecord() async {
+        let library = StickerLibrary(directory: Fixtures.tempDirectory())
+        let gif = (0..<4).map { i in Fixtures.sticker("👽", caption: "", emojiX: 0.02 + Double(i) * 0.1) }
+        // First seen paused: a still description of frame 0.
+        await library.remember(frames: [gif[0]], fingerprint: Fingerprint(gif[0]),
+                               reading: StickerReading(kind: .gif, subject: "Glowing blob"), ocrText: "", source: .received(app: "w"))
+        // Later seen playing: described with motion.
+        let animated = await library.remember(frames: [gif[1], gif[2], gif[3]], fingerprint: Fingerprint(gif[1]),
+                                              reading: StickerReading(kind: .gif, subject: "Alien explodes", animated: true),
+                                              ocrText: "", source: .received(app: "w"), replaceReading: true)
+        // Whatever frame is on screen next time, the answer is the animated one.
+        for frame in gif {
+            #expect(await library.match(Fingerprint(frame), ocrText: "")?.reading?.subject == "Alien explodes")
+        }
+        #expect(await library.history().filter { $0.reading?.subject == "Glowing blob" }.isEmpty)
+        _ = animated
+    }
+
+    @Test func pausedPreviewSeenLaterIsRecognised() async {
+        let library = StickerLibrary(directory: Fixtures.tempDirectory())
+        let gif = (0..<4).map { i in Fixtures.sticker("👽", caption: "", emojiX: 0.02 + Double(i) * 0.1) }
+        await library.remember(frames: [gif[1], gif[2], gif[3]], fingerprint: Fingerprint(gif[1]),
+                               reading: StickerReading(kind: .gif, subject: "Alien explodes", animated: true),
+                               ocrText: "", source: .received(app: "w"))
+        #expect(await library.matchAnimationFrame(Fingerprint(gif[0]))?.reading?.subject == "Alien explodes")
+        // Remembered now: a plain lookup finds it too.
+        #expect(await library.match(Fingerprint(gif[0]), ocrText: "")?.reading?.subject == "Alien explodes")
+        // A different still isn't mistaken for it.
+        #expect(await library.matchAnimationFrame(Fingerprint(Fixtures.sticker("🎂", caption: "yay"))) == nil)
+    }
+}

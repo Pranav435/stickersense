@@ -70,7 +70,14 @@ public enum LabelClassifier {
     static func keywordVerdict(_ text: String) -> Verdict? {
         let list = tokens(text)
         func itemWord(_ vocabulary: Set<String>) -> Bool {
-            list.indices.contains { i in vocabulary.contains(list[i]) && !(i > 0 && proseDeterminers.contains(list[i - 1])) }
+            list.indices.contains { i in
+                guard vocabulary.contains(list[i]) else { return false }
+                guard i > 0 else { return true }
+                // "Your GIF, 14:19, Sent to…" is how WhatsApp labels your own GIF: a possessive
+                // opening the label is fine; mid-sentence ("send me your sticker") it's prose.
+                if i == 1, ["your", "my"].contains(list[0]) { return true }
+                return !proseDeterminers.contains(list[i - 1])
+            }
         }
         if itemWord(gifWords) || gifPhrases.contains(where: text.contains) { return .gif }
         if itemWord(stickerWords) { return .sticker }

@@ -67,8 +67,13 @@ public enum TextReader {
     /// The sticker's own text: recognised lines minus chat chrome and anything the screen reader label says.
     public static func text(of lines: [Line], label: String?) -> String {
         lines.map { stripChrome($0.text) }
-            .filter { !$0.isEmpty && !isChatChrome($0) && !isInLabel($0, label: label) }
+            .filter { !$0.isEmpty && !isChatChrome($0) && !isInLabel($0, label: label) && !isFragment($0) }
             .joined(separator: "\n")
+    }
+
+    /// A stray letter or two ("V") misread from a moving caption or an edge of the picture.
+    static func isFragment(_ line: String) -> Bool {
+        line.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.count < 2
     }
 
     /// Lines that belong to the chat around the sticker (sender name, time, ticks), to be painted out

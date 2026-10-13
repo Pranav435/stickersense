@@ -59,7 +59,8 @@ final class ScreenCapturer {
         var frames = [first]
         var signatures = [MotionSignature(first)]
         // Two quick looks (~300 ms) to see whether it moves; most stickers are still.
-        var animated = alreadyKnownAnimated
+        // Even for GIFs, look first: WhatsApp shows a still preview until a GIF is opened.
+        var animated = false
         for _ in 0..<2 where !animated {
             try await Task.sleep(for: .milliseconds(150))
             let frame = try await captureWithScreenCaptureKit(rect)
@@ -71,6 +72,20 @@ final class ScreenCapturer {
             }
         }
         guard animated else { return [first] }
+        if alreadyKnownAnimated {
+            // GIFs are longer clips than sticker loops: two more looks across ~1.1 s so the model
+            // sees the scene change (3 frames in all; a 4th costs about a second of model time).
+            for _ in 0..<2 where frames.count < 3 {
+                try await Task.sleep(for: .milliseconds(550))
+                let frame = try await captureWithScreenCaptureKit(rect)
+                let signature = MotionSignature(frame)
+                if signatures.allSatisfy({ signature.differs(from: $0) }) {
+                    frames.append(frame)
+                    signatures.append(signature)
+                }
+            }
+            return frames
+        }
         // It moves: one or two more looks a little later, so three frames span ~0.7 s of the loop.
         var attempts = 0
         while frames.count < 3, attempts < 3 {

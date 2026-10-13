@@ -49,6 +49,8 @@ final class DescribeController {
     private var autoLoop: Task<Void, Never>?
     private var lastPolledCursor: VOCursor?
     private var lastCursorQuery = Date.distantPast
+    private var movedAwaySinceLastSpoken = true
+    private var lastKeyCount: UInt32 = 0
     private var quietUntil = Date.distantPast
     private var appSwitchObserver: NSObjectProtocol?
     private var lastEngineWarning: Date?
@@ -78,7 +80,9 @@ final class DescribeController {
             fail(error)
             return
         }
-        log.add("Shortcut on: \(target.text.isEmpty ? "(no label)" : target.text) \(target.bounds)")
+        // Only sticker and GIF labels go in the log — never a text message's words.
+        let isSticker = LabelClassifier.classify(label: target.text, size: target.bounds.size, isImageElement: false) != .notSticker
+        log.add("Shortcut on: \(isSticker ? target.text : "(not a sticker label)") \(target.bounds)")
 
         if let job {
             if job.target.isLikelySameItem(as: target) {
@@ -203,15 +207,31 @@ final class DescribeController {
             let maskedFirst = ImagePrep.masking(first, boxes: probe.chromeBoxes)
             var frames: [CGImage] = [maskedFirst]
             let record: StickerRecord
-            if probe.cached != nil {
+            // "Your GIF" / "Your sticker": probably something sent from the picker, which already has
+            // a good description made from the original file.
+            let isOwnItem = target.text.lowercased().replacingOccurrences(of: "\u{200E}", with: "").hasPrefix("your ")
+            // Checked before the cache: a description made from the original file beats one made
+            // from a chat's paused preview.
+            let recentlySent = isOwnItem ? await pipeline.library.matchRecentlySent(Fingerprint(maskedFirst)) : nil
+            // A GIF StickerSense already described with its motion, showing its paused preview now.
+            let knownGIF = recentlySent == nil && probe.cached == nil && (verdict ?? LabelClassifier.classify(label: target.text, size: rect.size, isImageElement: false)) == .gif
+                ? await pipeline.library.matchAnimationFrame(Fingerprint(maskedFirst)) : nil
+            if let recentlySent, recentlySent.reading != nil {
+                log.add("Recognised as something you sent")
+                record = recentlySent
+            } else if let knownGIF, knownGIF.reading != nil {
+                log.add("Recognised this GIF from an earlier view")
+                record = knownGIF
+            } else if probe.cached != nil {
                 record = try await pipeline.describe(frames: frames, probe: probe, context: context, source: source)
             } else {
                 // Most stickers are still: start describing the first frame right away while we
                 // check for motion, instead of waiting for the check to finish.
                 let describer = pipeline.describer
+                let library = pipeline.library
                 let ocr = probe.ocrText
                 let speculative = verdict == .gif ? nil : Task { try await describer.read(frames: [maskedFirst], context: context, ocrText: ocr) }
-                let (reading, captured) = try await withTaskCancellationHandler {
+                let (reading, captured, known) = try await withTaskCancellationHandler { () async throws -> (StickerReading, [CGImage], StickerRecord?) in
                     var captured = try await capturer.captureMotion(rect, first: first, alreadyKnownAnimated: verdict == .gif)
                     mark("motion", since: stage); stage = Date()
                     // VoiceOver scrolls items into view; a scroll mid-capture looks like animation.
@@ -221,15 +241,25 @@ final class DescribeController {
                     }
                     let masked = captured.map { ImagePrep.masking($0, boxes: probe.chromeBoxes) }
                     if masked.count == 1, let speculative {
-                        return (try await speculative.value, masked)
+                        return (try await speculative.value, masked, nil)
                     }
                     speculative?.cancel()
-                    return (try await describer.read(frames: masked, context: context, ocrText: ocr), masked)
+                    // An animation StickerSense already knows (e.g. a GIF you sent from the picker),
+                    // recognised from whichever frames the chat is showing: use its description.
+                    if let known = await library.matchAnimated(masked.map(Fingerprint.init)), let reading = known.reading {
+                        log.add("Recognised animation from its frames")
+                        return (reading, masked, known)
+                    }
+                    return (try await describer.read(frames: masked, context: context, ocrText: ocr), masked, nil)
                 } onCancel: {
                     speculative?.cancel()
                 }
                 frames = captured
-                record = await pipeline.store(frames: frames, probe: probe, reading: reading, source: source)
+                if let known {
+                    record = known
+                } else {
+                    record = await pipeline.store(frames: frames, probe: probe, reading: reading, source: source)
+                }
             }
             mark("model", since: stage)
             try Task.checkCancellation()
@@ -251,6 +281,7 @@ final class DescribeController {
             log.add(String(format: "%@ in %.2fs%@ [%@, %d frame%@]: %@", auto ? "Auto" : "Short", Date().timeIntervalSince(started),
                            probe.cached != nil ? " (cached)" : "", timings.joined(separator: ", "), frames.count, frames.count == 1 ? "" : "s", text))
             speak(text, interrupt: !auto, chime: true)
+            movedAwaySinceLastSpoken = false
             // A press for the detail usually follows within seconds: get its session ready now.
             Task { await pipeline.describer.prewarmDetail() }
             let spoken = Spoken(target: target, record: record, frames: frames, context: context, level: .short, text: text, at: Date(), viaAuto: auto)
@@ -330,6 +361,15 @@ final class DescribeController {
         }
     }
 
+    /// True when VoiceOver's last phrase is it announcing the item (its label), rather than our
+    /// description of it or anything else.
+    static func phrase(_ phrase: String, announces label: String, notOurs spoken: String) -> Bool {
+        let clean = { (s: String) in s.replacingOccurrences(of: "\u{200E}", with: "").trimmingCharacters(in: .whitespaces) }
+        let p = clean(phrase), l = clean(label)
+        guard !p.isEmpty, !l.isEmpty, !p.contains(clean(spoken).prefix(20)) else { return false }
+        return p.hasPrefix(String(l.prefix(18))) || l.hasPrefix(String(p.prefix(18)))
+    }
+
     /// Only ask VoiceOver where its cursor is after the user has pressed a key or touched the
     /// trackpad (the cursor can't move otherwise), plus a slow check every few seconds.
     /// Reading the last-input time is a cheap local call; it never touches VoiceOver or the
@@ -350,11 +390,26 @@ final class DescribeController {
         let front = NSWorkspace.shared.frontmostApplication
         guard front?.bundleIdentifier != Bundle.main.bundleIdentifier,
               StickerDetector.isWatched(bundleID: front?.bundleIdentifier, scope: settings.autoScope) else { return }
+        // Key presses since the last look (a cheap system counter; it also sees VoiceOver's own keys).
+        let keyCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
+        let keysSinceLastLook = keyCount &- lastKeyCount
+        lastKeyCount = keyCount
         // Poll only the rectangle (VoiceOver answers in ~1 ms); ask for the label only after a move.
         guard let bounds = try? await voiceOver.cursorBounds() else { return }
-        if let lastPolledCursor, lastPolledCursor.bounds == bounds { return }
+        if let lastPolledCursor, lastPolledCursor.bounds == bounds {
+            // Same spot as last time. If the user went away and came straight back (faster than we
+            // look), VoiceOver has just re-read the item: its last phrase is the item's label again,
+            // not our description. That's the signal to speak again.
+            guard let last, last.target.isLikelySameItem(as: lastPolledCursor) else { return }
+            let phrase = (try? await voiceOver.lastPhrase()) ?? ""
+            let reread = keysSinceLastLook >= 2 || Self.phrase(phrase, announces: lastPolledCursor.text, notOurs: last.text)
+            guard reread else { return }
+            log.add("Back on the same item, speaking again")
+            movedAwaySinceLastSpoken = true
+        }
         guard let cursor = try? await voiceOver.cursor() else { return }
         lastPolledCursor = cursor
+        if let last, !last.target.isLikelySameItem(as: cursor) { movedAwaySinceLastSpoken = true }
         // The cursor moved: an automatic description for the previous item is no longer wanted.
         if let job, job.auto, !job.target.isLikelySameItem(as: cursor) { job.task.cancel(); self.job = nil }
 
@@ -366,8 +421,9 @@ final class DescribeController {
             verdict = StickerDetector.verdict(for: cursor, axRole: StickerDetector.role(at: cursor.bounds))
         }
         guard verdict != .notSticker else { return }
-        // Don't repeat ourselves if we just spoke about exactly this item, or are already on it.
-        if let last, last.target.isLikelySameItem(as: cursor), Date().timeIntervalSince(last.at) < 20 { return }
+        // Coming back to an item after visiting another speaks it again (instantly, from memory);
+        // the same item merely shifting on screen (a chat scrolling) doesn't.
+        if let last, last.target.isLikelySameItem(as: cursor), !movedAwaySinceLastSpoken { return }
         if job != nil { return }
         log.add("Auto: \(verdict) — \(cursor.text)")
         // Let VoiceOver finish its own short announcement first, and skip items the user
