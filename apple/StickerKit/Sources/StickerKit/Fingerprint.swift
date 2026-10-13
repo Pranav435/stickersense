@@ -89,6 +89,19 @@ public struct Thumbprint: Codable, Sendable, Hashable {
         self.rgb = rgb
     }
 
+    /// Every pixel about the same colour (a blank capture).
+    public var isUniform: Bool {
+        guard rgb.count >= 3 else { return true }
+        for channel in 0..<3 {
+            var low = 255, high = 0
+            for i in stride(from: channel, to: rgb.count, by: 3) {
+                low = min(low, Int(rgb[i])); high = max(high, Int(rgb[i]))
+            }
+            if high - low > 10 { return false }
+        }
+        return true
+    }
+
     /// Mean absolute difference in 0…1.
     public func difference(to other: Thumbprint) -> Double {
         guard rgb.count == other.rgb.count, !rgb.isEmpty else { return 1 }

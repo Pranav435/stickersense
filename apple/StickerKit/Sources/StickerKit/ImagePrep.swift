@@ -75,6 +75,12 @@ public enum ImagePrep {
         return ctx.makeImage() ?? image
     }
 
+    /// True for a capture with nothing in it — one flat colour. That happens when the screen
+    /// region is blank or protected; describing it would only say "black rectangle".
+    public static func isBlank(_ image: CGImage) -> Bool {
+        Thumbprint(image, side: 24).isUniform
+    }
+
     // MARK: Animated images
 
     /// Loads an image file (PNG, JPEG, GIF, WebP, APNG, HEIC…) and returns up to

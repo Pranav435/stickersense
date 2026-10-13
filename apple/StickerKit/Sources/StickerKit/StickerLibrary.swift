@@ -45,7 +45,8 @@ public actor StickerLibrary {
         try? FileManager.default.createDirectory(at: directory.appendingPathComponent("images", isDirectory: true), withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: directory.appendingPathComponent("library.json")),
            let decoded = try? Self.decoder.decode([StickerRecord].self, from: data) {
-            records = Dictionary(decoded.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            // Drop descriptions of blank captures ("Black rectangle") that older versions cached.
+            records = Dictionary(decoded.filter { !$0.fingerprint.thumb.isUniform }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         }
     }
 
@@ -75,6 +76,7 @@ public actor StickerLibrary {
     /// Finds a previously described sticker that looks the same. When both have OCR text,
     /// the text must agree too — sticker packs often reuse one drawing with different words.
     public func match(_ fingerprint: Fingerprint, ocrText: String) -> StickerRecord? {
+        guard !fingerprint.thumb.isUniform else { return nil }
         let ocr = TextReader.normalized(ocrText)
         var best: (record: StickerRecord, distance: Int)?
         for record in records.values where record.isDescribed && record.fingerprint.isSameSticker(as: fingerprint) {
@@ -127,6 +129,11 @@ public actor StickerLibrary {
         replaceReading: Bool = false
     ) -> StickerRecord {
         let now = Date()
+        // Never cache a blank capture: every blank image looks alike and would "match" forever.
+        if fingerprint.thumb.isUniform {
+            return StickerRecord(id: UUID(), fingerprint: fingerprint, reading: reading, detailed: nil, ocrText: ocrText, source: source,
+                                 imageFile: nil, remoteURL: remoteURL, addedAt: now, lastSeenAt: now, timesSeen: 1, timesSent: 0)
+        }
         if var existing = match(fingerprint, ocrText: ocrText) ?? records.values.first(where: { $0.fingerprint == fingerprint }) {
             existing.reading = replaceReading ? reading : (existing.reading ?? reading)
             existing.lastSeenAt = now

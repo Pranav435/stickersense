@@ -14,28 +14,37 @@ public enum LabelClassifier {
         case notSticker
     }
 
-    /// Words screen readers and chat apps use for stickers, in several languages.
+    /// The words chat apps use for a sticker *item*, in several languages. Singular only:
+    /// "stickers" or "GIFs" in a label is someone writing about stickers, not a sticker.
     public static let stickerWords: Set<String> = [
-        "sticker", "stickers", "memoji", "animoji", "genmoji",
-        "pegatina", "pegatinas", "autocollant", "autocollants", "adesivo", "adesivos", "aufkleber",
-        "наклейка", "стикер", "स्टिकर", "ステッカー", "スタンプ", "贴纸", "貼圖", "스티커", "çıkartma",
+        "sticker", "memoji", "animoji", "genmoji",
+        "pegatina", "autocollant", "adesivo", "aufkleber", "наклейка", "стикер", "स्टिकर", "ステッカー", "スタンプ",
+        "贴纸", "貼圖", "스티커", "çıkartma",
     ]
 
-    public static let gifWords: Set<String> = ["gif", "gifs"]
+    public static let gifWords: Set<String> = ["gif"]
     public static let gifPhrases = ["animated image", "animated sticker", "animated gif"]
 
-    public static func classify(label: String, size: CGSize, isImageElement: Bool) -> Verdict {
+    /// - Parameter inBrowser: web pages are full of text *about* stickers (this project's README,
+    ///   for a start), so there a keyword only counts on something VoiceOver calls an image.
+    public static func classify(label: String, size: CGSize, isImageElement: Bool, inBrowser: Bool = false) -> Verdict {
+        // Text lines and tiny controls are never stickers, whatever they say.
+        guard isStickerShaped(size) else { return .notSticker }
         let cleaned = clean(label)
-        let firstClause = cleaned.split(separator: ",", maxSplits: 1).first.map(String.init) ?? cleaned
-        if let verdict = keywordVerdict(firstClause) { return verdict }
-
         let words = tokens(cleaned)
+        let saysImage = isImageElement || words.suffix(2).contains("image")
+        if inBrowser, !saysImage { return .notSticker }
+
+        let firstClause = cleaned.split(separator: ",", maxSplits: 1).first.map(String.init) ?? cleaned
+        // Long enough for "<pack name> sticker from <sender>"; prose is ruled out separately.
+        if !isProse(firstClause), tokens(firstClause).count <= 14, let verdict = keywordVerdict(firstClause) { return verdict }
+
         // Short labels ("Sticker", "GIF, 4:05 PM") or real image elements: trust keywords anywhere.
-        if words.count <= 8 || isImageElement, let verdict = keywordVerdict(cleaned) { return verdict }
+        if (words.count <= 8 && !isProse(cleaned)) || saysImage, let verdict = keywordVerdict(cleaned) { return verdict }
 
         // An unlabelled picture ("image"): treat it as a sticker when it's sticker-sized —
         // roughly square, bigger than an avatar, smaller than most photos.
-        if isImageElement || (words.count <= 8 && words.contains("image")) {
+        if saysImage, words.count <= 8 {
             let ratio = size.width / max(size.height, 1)
             if (80...280).contains(size.width), (80...280).contains(size.height), ratio > 0.7, ratio < 1.4 {
                 return .sticker
@@ -44,10 +53,27 @@ public enum LabelClassifier {
         return .notSticker
     }
 
+    /// Stickers and GIFs are roughly square-ish blocks; lines of text are long and thin.
+    public static func isStickerShaped(_ size: CGSize) -> Bool {
+        let shortSide = min(size.width, size.height), longSide = max(size.width, size.height)
+        return shortSide >= 40 && longSide / max(shortSide, 1) <= 3
+    }
+
+    /// A sentence ("Someone sends you a sticker. Your screen reader…") rather than an item label.
+    static func isProse(_ text: String) -> Bool {
+        text.range(of: #"[.!?]\s+\S"#, options: .regularExpression) != nil
+    }
+
+    /// Words that make "sticker" part of a sentence ("send me a sticker") rather than an item type.
+    static let proseDeterminers: Set<String> = ["a", "an", "the", "this", "that", "my", "your", "his", "her", "their", "our", "one", "any", "some", "every"]
+
     static func keywordVerdict(_ text: String) -> Verdict? {
-        let words = Set(tokens(text))
-        if !words.isDisjoint(with: gifWords) || gifPhrases.contains(where: text.contains) { return .gif }
-        if !words.isDisjoint(with: stickerWords) { return .sticker }
+        let list = tokens(text)
+        func itemWord(_ vocabulary: Set<String>) -> Bool {
+            list.indices.contains { i in vocabulary.contains(list[i]) && !(i > 0 && proseDeterminers.contains(list[i - 1])) }
+        }
+        if itemWord(gifWords) || gifPhrases.contains(where: text.contains) { return .gif }
+        if itemWord(stickerWords) { return .sticker }
         // Scripts without spaces between words (Japanese, Chinese): substring match.
         if stickerWords.contains(where: { word in !word.unicodeScalars.allSatisfy(\.isASCII) && text.contains(word) }) { return .sticker }
         return nil

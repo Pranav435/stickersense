@@ -286,6 +286,36 @@ struct LabelTests {
         }
     }
 
+    @Test func textAboutStickersIsNotASticker() {
+        // Real lines VoiceOver read from this project's README on GitHub.
+        let readme = [
+            ("Someone sends you a sticker. Your screen reader, ever the diplomat, says \"sticker\". Thanks.", CGSize(width: 700, height: 90)),
+            ("StickerSense describes stickers, GIFs and pictures out loud, in any app, for people who use a screen reader.", CGSize(width: 700, height: 60)),
+            ("A sticker it hasn't seen before: about 1.2 seconds.", CGSize(width: 500, height: 24)),
+            ("A sticker, $3 link", CGSize(width: 110, height: 22)),
+            ("A GIF, $5 link", CGSize(width: 90, height: 22)),
+            ("Nobody has sent a sticker yet, so the first name here could be yours.", CGSize(width: 300, height: 120)),
+        ]
+        for (label, size) in readme {
+            #expect(LabelClassifier.classify(label: label, size: size, isImageElement: false, inBrowser: true) == .notSticker, "\(label)")
+            #expect(LabelClassifier.classify(label: label, size: size, isImageElement: false, inBrowser: false) == .notSticker, "\(label)")
+        }
+    }
+
+    @Test func webStickersNeedImageSemantics() {
+        let size = CGSize(width: 160, height: 160)
+        #expect(LabelClassifier.classify(label: "Sticker, image", size: size, isImageElement: false, inBrowser: true) == .sticker)
+        #expect(LabelClassifier.classify(label: "GIF", size: size, isImageElement: true, inBrowser: true) == .gif)
+        #expect(LabelClassifier.classify(label: "Sticker", size: size, isImageElement: false, inBrowser: true) == .notSticker)
+    }
+
+    @Test func textShapedRegionsAreNeverStickers() {
+        #expect(!LabelClassifier.isStickerShaped(CGSize(width: 700, height: 60)))
+        #expect(!LabelClassifier.isStickerShaped(CGSize(width: 110, height: 22)))
+        #expect(LabelClassifier.isStickerShaped(CGSize(width: 138, height: 208)))
+        #expect(LabelClassifier.isStickerShaped(CGSize(width: 300, height: 170)))
+    }
+
     @Test func unlabelledImagesUseSize() {
         #expect(LabelClassifier.classify(label: "image", size: CGSize(width: 150, height: 150), isImageElement: true) == .sticker)
         #expect(LabelClassifier.classify(label: "image", size: CGSize(width: 40, height: 40), isImageElement: true) == .notSticker) // avatar
@@ -366,6 +396,25 @@ struct VerifiedTextTests {
         #expect(StickerDescriber.verifiedText("hello", ocrText: "zzz", label: nil) == "zzz")
         // Sender names from the label never count as sticker text.
         #expect(StickerDescriber.verifiedText("Ana Example", ocrText: "Ana Example", label: "Pack sticker from Ana Example, 15:48") == "")
+    }
+}
+
+@Suite("Blank captures")
+struct BlankCaptureTests {
+    @Test func flatImagesAreBlankAndNeverCached() async {
+        let ctx = CGContext(data: nil, width: 300, height: 120, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 120))
+        let black = ctx.makeImage()!
+        #expect(ImagePrep.isBlank(black))
+        #expect(!ImagePrep.isBlank(Fixtures.sticker("🐶", caption: "idk")))
+
+        let library = StickerLibrary(directory: Fixtures.tempDirectory())
+        await library.remember(frames: [black], fingerprint: Fingerprint(black), reading: StickerReading(kind: .illustration, subject: "Black rectangle"),
+                               ocrText: "", source: .received(app: "x"))
+        #expect(await library.count == 0)
+        #expect(await library.match(Fingerprint(black), ocrText: "") == nil)
     }
 }
 

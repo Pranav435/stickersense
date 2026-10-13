@@ -185,6 +185,12 @@ final class DescribeController {
             var stage = Date()
             let first = try await capturer.capture(rect)
             mark("capture", since: stage); stage = Date()
+            // A flat, empty capture (blank or protected screen area): nothing to describe.
+            if ImagePrep.isBlank(first) {
+                log.add("Blank capture at \(rect), not describing")
+                if !auto { fail(message: "There's nothing visible there to describe.") }
+                return
+            }
             // When VoiceOver's label says "sticker from Ana…", everything in it (name, time, chat) is
             // chat chrome. On a text message the label *is* the message, so don't treat it as chrome.
             let labelVerdict = verdict ?? LabelClassifier.classify(label: target.text, size: rect.size, isImageElement: false)
