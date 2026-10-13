@@ -40,11 +40,12 @@ You can also type two colons (::) in a chat's message box to open the sticker pi
 
 ## Installing
 
-### From a release folder (model included)
+### From a release (model included)
 
-1. Unzip the release, for example to `C:\Program Files\StickerSense` or `%LOCALAPPDATA%\Programs\StickerSense`.
-2. Run `StickerSense.exe`.
-3. The Setup window opens the first time. It checks the model, your screen reader and text recognition, and has a practice sticker.
+1. From [Releases](https://github.com/Pranav435/stickersense/releases/latest), download `StickerSense-Windows-x64.zip` (about 1.5 GB, with the fast model, so it works offline as soon as it's unzipped). On a slow connection, download `StickerSense-Windows-x64-app-only.zip` instead; Setup then downloads the model (1.4 GB).
+2. Extract it: select the zip in File Explorer, press the Applications key or Shift+F10, and choose Extract All. A folder you can write to works best, such as `%LOCALAPPDATA%\Programs\StickerSense` or `Apps\StickerSense` in your user folder.
+3. Run `StickerSense.exe`. StickerSense isn't code-signed yet, so the first time Windows SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
+4. The Setup window opens the first time. It checks the model, your screen reader and text recognition, and has a practice sticker.
 
 After that, starting StickerSense opens its main window (see below). Closing the window doesn't quit StickerSense: it keeps running in the notification area, so the shortcuts keep working. When Windows starts it at sign-in, it stays quietly in the notification area without opening a window.
 
