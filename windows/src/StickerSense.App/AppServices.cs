@@ -27,7 +27,7 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
         DataDirectory = StickerLibrary.DefaultDirectory();
         Log = new DebugLog(DataDirectory);
         Settings = new SettingsStore(DataDirectory);
-        Announcer = new Announcer(dispatcher, AppContext.BaseDirectory) { Output = Settings.SpeechOutput };
+        Announcer = new Announcer(dispatcher, AppContext.BaseDirectory) { Output = Settings.SpeechOutput, Log = Log };
         Earcons = new EarconPlayer { IsEnabled = Settings.Earcons, Volume = Settings.EarconVolume };
         Library = new StickerLibrary(DataDirectory);
         Ocr = new WindowsOcrReader();

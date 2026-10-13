@@ -157,6 +157,9 @@ public class StickerDetectorTests
         Assert.True(StickerDetector.IsWatched("msedge", AutoScope.ChatApps));
         Assert.False(StickerDetector.IsWatched("notepad", AutoScope.ChatApps));
         Assert.True(StickerDetector.IsWatched("notepad", AutoScope.Everywhere));
+        // A test-only allowance (the self-test chat window runs as StickerSense.exe).
+        Assert.True(StickerDetector.IsWatched("StickerSense", AutoScope.ChatApps, ["stickersense"]));
+        Assert.False(StickerDetector.IsWatched("notepad", AutoScope.ChatApps, ["stickersense"]));
     }
 
     [Fact]

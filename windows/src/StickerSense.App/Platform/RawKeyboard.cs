@@ -73,7 +73,7 @@ internal sealed class RawKeyboard : IDisposable
 
     private static bool Down(int key) => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0;
 
-    private TypedKey Translate(ushort virtualKey, ushort scanCode)
+    private unsafe TypedKey Translate(ushort virtualKey, ushort scanCode)
     {
         if (virtualKey is NativeMethods.VK_SHIFT or NativeMethods.VK_LSHIFT or NativeMethods.VK_RSHIFT
             or NativeMethods.VK_CONTROL or NativeMethods.VK_LCONTROL or NativeMethods.VK_RCONTROL
@@ -97,8 +97,13 @@ internal sealed class RawKeyboard : IDisposable
         // The foreground app's layout (people switch layouts per app); flag 0x4 leaves dead keys alone.
         var thread = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out _);
         var layout = NativeMethods.GetKeyboardLayout(thread);
-        var count = NativeMethods.ToUnicodeEx(virtualKey, scanCode, keyState, buffer, buffer.Length, NativeMethods.TOUNICODE_KEEP_STATE, layout);
-        return new TypedKey(count > 0 ? new string(buffer, 0, count) : null);
+        int count;
+        fixed (byte* state = keyState)
+        fixed (char* chars = buffer)
+        {
+            count = NativeMethods.ToUnicodeEx(virtualKey, scanCode, state, chars, buffer.Length, NativeMethods.TOUNICODE_KEEP_STATE, layout);
+        }
+        return new TypedKey(count > 0 ? new string(buffer, 0, Math.Min(count, buffer.Length)) : null);
     }
 
     public void Dispose()

@@ -22,8 +22,12 @@
     Folder for the release. Default: windows\publish\StickerSense-<Runtime>.
 
 .PARAMETER NvdaControllerDll
-    Optional path to nvdaControllerClient.dll (from NVDA's controller client zip) to copy next to
-    the exe. It is not included by default; see the README.
+    Path to an nvdaControllerClient.dll to include instead of downloading NV Access's.
+
+.PARAMETER SkipNvdaController
+    Leave out NVDA's controller client. By default the script downloads NV Access's controller
+    client zip (a pinned version, checked against its SHA-256) and puts the DLL for -Runtime next
+    to the exe, with its licence. Without it, NVDA users hear StickerSense in the Windows voice.
 
 .PARAMETER SkipModel
     Publish the app only, without the model (users then download it from Setup).
@@ -42,6 +46,8 @@ param(
     [string] $Output,
 
     [string] $NvdaControllerDll,
+
+    [switch] $SkipNvdaController,
 
     [switch] $SkipModel,
 
@@ -69,10 +75,42 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXIT
 
 Copy-Item (Join-Path $windowsRoot 'README.md') (Join-Path $Output 'README.md') -Force
 
-if ($NvdaControllerDll) {
+# NVDA only reads UI Automation notifications from the app with focus, so StickerSense needs
+# NVDA's controller client to speak (and braille) through NVDA while you're in a chat app.
+$nvdaVersion = '2026.2'
+$nvdaZipUrl = "https://download.nvaccess.org/releases/$nvdaVersion/nvda_${nvdaVersion}_controllerClient.zip"
+$nvdaZipSha256 = '510736F021AEFA33378076FA342A4524B586BC1C6B096DB9479AF42B28AAC649'
+$nvdaDll = Join-Path $Output 'nvdaControllerClient.dll'
+if ($SkipNvdaController) {
+    Remove-Item $nvdaDll, (Join-Path $Output 'nvdaControllerClient-license.txt') -Force -ErrorAction SilentlyContinue
+}
+elseif ($NvdaControllerDll) {
     if (-not (Test-Path $NvdaControllerDll)) { throw "NVDA controller DLL not found: $NvdaControllerDll" }
-    Copy-Item $NvdaControllerDll (Join-Path $Output 'nvdaControllerClient.dll') -Force
+    Copy-Item $NvdaControllerDll $nvdaDll -Force
     Say 'Copied the NVDA controller client next to StickerSense.exe.'
+}
+else {
+    $architecture = if ($Runtime -eq 'win-arm64') { 'arm64' } else { 'x64' }
+    $zipFile = Join-Path ([System.IO.Path]::GetTempPath()) "nvda_${nvdaVersion}_controllerClient.zip"
+    Say "Downloading NVDA's controller client $nvdaVersion from NV Access."
+    Invoke-WebRequest -Uri $nvdaZipUrl -OutFile $zipFile -UseBasicParsing
+    try {
+        $hash = (Get-FileHash $zipFile -Algorithm SHA256).Hash
+        if ($hash -ne $nvdaZipSha256) { throw "The NVDA controller client download didn't match its expected SHA-256 ($hash)." }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($zipFile)
+        try {
+            $wanted = @{ "$architecture/nvdaControllerClient.dll" = $nvdaDll; 'license.txt' = (Join-Path $Output 'nvdaControllerClient-license.txt') }
+            foreach ($entryName in $wanted.Keys) {
+                $entry = $archive.GetEntry($entryName)
+                if (-not $entry) { throw "$entryName is missing from the NVDA controller client zip." }
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $wanted[$entryName], $true)
+            }
+        }
+        finally { $archive.Dispose() }
+    }
+    finally { Remove-Item $zipFile -Force -ErrorAction SilentlyContinue }
+    Say "Added NVDA's controller client ($architecture) and its licence next to StickerSense.exe."
 }
 
 # 2. Download the model from Hugging Face into the release.

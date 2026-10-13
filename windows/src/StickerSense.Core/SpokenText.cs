@@ -22,9 +22,7 @@ public static class SpokenText
         }
         else
         {
-            var line = prefix + reading.Subject;
-            if (reading.Text.Length > 0) line += $", “{reading.Text}”";
-            parts.Add(line + ".");
+            parts.Add(prefix + WithText(reading.Subject, reading.Text) + ".");
         }
         if (includeVibe && reading.Vibe.Length > 0)
         {
@@ -36,10 +34,33 @@ public static class SpokenText
     /// <summary>Searchable / listable one-liner used in the history and picker lists.</summary>
     public static string ListLabel(StickerReading reading)
     {
-        var line = reading.Subject;
-        if (reading.Text.Length > 0) line += $", “{reading.Text}”";
+        var line = WithText(reading.Subject, reading.Text);
         if (reading.Animated) line += ", animated";
         return line;
+    }
+
+    /// <summary>
+    /// The subject, then the sticker's words in quotation marks, unless the subject already says
+    /// them (models often write "a cake with the text "HAPPY BDAY"").
+    /// </summary>
+    internal static string WithText(string subject, string text)
+    {
+        if (text.Length == 0) return subject;
+        if (ContainsWords(StickerText.Tokens(subject), StickerText.Tokens(text))) return subject;
+        return subject.Length == 0 ? $"“{text}”" : $"{subject}, “{text}”";
+    }
+
+    /// <summary>Whether <paramref name="words"/> appear in <paramref name="within"/> as consecutive whole words.</summary>
+    private static bool ContainsWords(IReadOnlyList<string> within, IReadOnlyList<string> words)
+    {
+        if (words.Count == 0) return false;
+        for (var start = 0; start + words.Count <= within.Count; start++)
+        {
+            var match = true;
+            for (var i = 0; i < words.Count && match; i++) match = within[start + i] == words[i];
+            if (match) return true;
+        }
+        return false;
     }
 
     internal static string KindPrefix(StickerKind kind) => kind switch

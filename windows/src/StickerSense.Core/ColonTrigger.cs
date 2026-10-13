@@ -47,6 +47,9 @@ public interface IColonTriggerHost
     /// <summary>Same apps as auto mode.</summary>
     AutoScope Scope { get; }
 
+    /// <summary>Extra process names treated as chat apps (test-only).</summary>
+    IReadOnlyCollection<string> AlsoWatchedApps => [];
+
     /// <summary>The foreground app (a cheap local call): its process name, whether it's StickerSense, and a handle to return to.</summary>
     (string AppName, bool IsOwnApp, object Window) Foreground();
 
@@ -72,7 +75,7 @@ public sealed class ColonTrigger(IColonTriggerHost host, ColonDetector? detector
         }
         if (!detector.Observe(key)) return false;
         var (appName, isOwnApp, window) = host.Foreground();
-        if (isOwnApp || !StickerDetector.IsWatched(appName, host.Scope)) return false;
+        if (isOwnApp || !StickerDetector.IsWatched(appName, host.Scope, host.AlsoWatchedApps)) return false;
         if (!await host.FocusIsTextInputAsync()) return false;
         host.OpenPicker(window, charactersToReplace: 2);
         return true;

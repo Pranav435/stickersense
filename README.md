@@ -35,7 +35,7 @@ It also stays out of VoiceOver's way. It only checks the cursor after you press 
 
 - **Mac** (macOS 27 or later, Apple silicon, Apple Intelligence on). The main event: fully built, and tested by a VoiceOver user.
 - **iPhone and iPad** (iOS 27 or later, Apple Intelligence). iOS won't let apps see the screen or the VoiceOver cursor, so it works through a Back Tap or Action button shortcut that describes the stickers on screen, newest first. There's also a share sheet option, Control Center controls and the picker. It builds; it hasn't been tested on a device yet.
-- **Windows** (10 and 11, with NVDA, JAWS or Narrator). Same idea and same shortcuts with Control Alt Shift, using a bundled on-device vision model (Phi-3.5-vision). It builds and its core is tested, but nobody has run it on Windows yet. If you do, please report what happens.
+- **Windows** (10 and 11, with NVDA, JAWS or Narrator). Same idea and same shortcuts with Control Alt Shift, using a bundled on-device vision model (Phi-3.5-vision). It has been installed and run on one Windows 11 PC with NVDA: it loads the model and describes a still sticker in about 10 seconds on the processor (about 25 for an animated one). Trying the shortcut, automatic descriptions and "::" by keyboard in a real chat is still to do. If you try it, please report what happens.
 
 ## Install on a Mac
 
@@ -114,7 +114,7 @@ To run the tests, use `swift test` in `apple/StickerKit`; add `STICKERSENSE_MODE
 
 ## Contributing
 
-Bug reports from screen reader users help the most. Was something slow, wrong, too chatty or silent? Open an issue and include the relevant lines from `~/Library/Logs/StickerSense.log`. If you have a Windows PC and NVDA, you could be the first person ever to run the Windows version, which is quite a title.
+Bug reports from screen reader users help the most. Was something slow, wrong, too chatty or silent? Open an issue and include the relevant lines from `~/Library/Logs/StickerSense.log`. If you have a Windows PC and NVDA, you could be the first person to use the Windows version day to day, which is still quite a title.
 
 ## Donate
 

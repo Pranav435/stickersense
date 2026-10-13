@@ -36,7 +36,8 @@ internal sealed class SettingsViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<Choice<EngineDevice>> Devices { get; } =
     [
-        new(EngineDevice.Automatic, "The graphics card when possible (recommended)"),
+        new(EngineDevice.Automatic, "The graphics card if it has its own memory, otherwise the processor (recommended)"),
+        new(EngineDevice.GraphicsCard, "The graphics card"),
         new(EngineDevice.ProcessorOnly, "The processor only"),
     ];
 

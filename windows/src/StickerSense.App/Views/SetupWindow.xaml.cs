@@ -81,7 +81,7 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
 
     public string PracticeHint => $"Press {DescribeShortcut} to hear it described.";
 
-    public ModelVariant Recommended => gpu is null ? ModelVariant.Cpu : ModelVariant.DirectML;
+    public ModelVariant Recommended => gpu is not null && GpuInfo.IsWorthUsing(gpu) ? ModelVariant.DirectML : ModelVariant.Cpu;
 
     public string GpuDownloadTitle =>
         $"Download for the _graphics card ({ModelCatalog.ApproximateSize(ModelVariant.DirectML)}){(Recommended == ModelVariant.DirectML ? ", recommended" : "")}";
@@ -132,7 +132,9 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
         var status = app.EngineStatus;
         var recommendation = gpu is null
             ? "This computer has no graphics card StickerSense can use, so get the processor model."
-            : $"Your graphics card ({gpu.Name.Trim()}) can run the graphics card model, which is faster.";
+            : GpuInfo.IsWorthUsing(gpu)
+                ? $"Your graphics card ({gpu.Name.Trim()}) can run the graphics card model, which is faster."
+                : $"Your graphics ({gpu.Name.Trim()}) are built in and share the computer's memory, so the processor model is faster here. Get the processor model.";
         switch (status.State)
         {
             case EngineState.Ready:
@@ -164,7 +166,7 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
                 break;
             case ScreenReaderKind.Nvda:
                 ScreenReader.Update(CheckState.NeedsAttention,
-                    "NVDA is running, but nvdaControllerClient.dll isn't in the StickerSense folder, so StickerSense sends its speech as Windows notifications, which NVDA may not read in every app. Put the DLL from NVDA's controller client download next to StickerSense.exe; the README explains where to get it.");
+                    "NVDA is running, but nvdaControllerClient.dll isn't in the StickerSense folder. NVDA only reads notifications from the app you're in, so StickerSense speaks with the Windows voice instead of through NVDA, and nothing goes to your braille display. Put the DLL from NVDA's controller client download next to StickerSense.exe; the README explains where to get it.");
                 break;
             case ScreenReaderKind.Jaws:
                 ScreenReader.Update(CheckState.Done, "JAWS is running. StickerSense speaks through JAWS.");

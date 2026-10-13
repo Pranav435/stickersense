@@ -34,8 +34,8 @@ You can also type two colons (::) in a chat's message box to open the sticker pi
 ## Requirements
 
 - Windows 10 version 1809 or later, or Windows 11. 64-bit Intel or AMD (x64), or ARM64.
-- For the graphics card model: a DirectX 12 graphics card. Most computers from the last several years have one, including built-in Intel and AMD graphics.
-- For the processor-only model: 16 gigabytes of memory is recommended.
+- For the graphics card model: a DirectX 12 graphics card with at least 2 gigabytes of its own memory. On built-in graphics that share the computer's memory (most laptops), the processor model is faster.
+- For the processor-only model: 16 gigabytes of memory is recommended. The model uses about 4 gigabytes while StickerSense runs.
 - About 4 gigabytes of free disk space for the model.
 
 ## Installing
@@ -66,8 +66,10 @@ The StickerSense window has three parts, each with a heading:
 
 If you have the app without the model, Setup offers to download it from Hugging Face. Choose:
 
-- Download for the graphics card: about 2.6 gigabytes. Recommended when you have a graphics card; it's much faster.
-- Download for the processor only: about 3.2 gigabytes. Works on any computer, but slower.
+- Download for the graphics card: about 2.6 gigabytes. Recommended when your graphics card has 2 gigabytes or more of its own memory.
+- Download for the processor only: about 3.2 gigabytes. Works on any computer. Recommended for built-in graphics, where it's the faster of the two.
+
+Setup marks the one it recommends for your computer.
 
 StickerSense announces the download progress every 10 percent. You can keep using your computer, cancel, and continue later from where it stopped.
 
@@ -85,7 +87,20 @@ The folder must contain the files of one of these Hugging Face folders:
 - Graphics card: `gpu/gpu-int4-rtn-block-32`
 - Processor only: `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4`
 
-The graphics card model runs through DirectML. If the graphics card can't run it, StickerSense switches to the processor by itself. You can also choose "The processor only" in Settings.
+The graphics card model runs through DirectML. If the graphics card can't run it, StickerSense switches to the processor by itself. On built-in graphics that share the computer's memory, StickerSense runs it on the processor from the start, because that's faster there. In Settings you can choose "The graphics card" or "The processor only" instead.
+
+The model runs in a separate background process (`StickerSense.exe --engine`), so a problem inside the model can't close StickerSense. If that process stops, StickerSense says the description failed and starts it again.
+
+How fast is it? Measured on an Intel Core i7-11700 (8 cores, 16 gigabytes) with the processor model:
+
+- Loading the model when StickerSense starts: about 12 to 14 seconds, in the background.
+- A still sticker: about 9 to 11 seconds. An animated one (3 frames): about 25 seconds.
+- The detailed description: about 20 to 25 seconds for a still sticker, 35 to 40 for an animated one.
+- A sticker heard before: instant.
+
+On that computer's built-in Intel UHD Graphics 750, the graphics card model took about 100 seconds per sticker, which is why StickerSense uses the processor there. A graphics card with its own memory is much faster.
+
+To keep descriptions quick, StickerSense gives the model each picture as one 336-pixel square plus an overview, instead of the 17 tiles ONNX Runtime's own image processor makes. That's about 6 times faster with the same description; the words on a sticker come from Windows text recognition anyway.
 
 Descriptions are in your Windows display language. Text written on a sticker is kept in its own language.
 
@@ -93,16 +108,18 @@ Descriptions are in your Windows display language. Text written on a sticker is 
 
 ### NVDA
 
-StickerSense talks to NVDA directly through NVDA's controller client, `nvdaControllerClient.dll`. This gives the best results: StickerSense speaks in your NVDA voice and shows the text on your braille display. The DLL is not included with StickerSense, so add it yourself:
+StickerSense talks to NVDA directly through NVDA's controller client, `nvdaControllerClient.dll`, which comes with the StickerSense download. StickerSense speaks in your NVDA voice and shows the text on your braille display.
 
-1. Go to NVDA's download folder for your NVDA version, for example [download.nvaccess.org/releases/stable](https://download.nvaccess.org/releases/stable/).
+If you built StickerSense yourself, or the Setup window says the DLL is missing, add it:
+
+1. Go to NVDA's download folder, for example [download.nvaccess.org/releases/stable](https://download.nvaccess.org/releases/stable/).
 2. Download the file whose name ends in `_controllerClient.zip`.
 3. Open the zip. On a 64-bit Intel or AMD computer, take `x64\nvdaControllerClient.dll`. On ARM64, take `arm64\nvdaControllerClient.dll`.
 4. Put it in the same folder as `StickerSense.exe`, then restart StickerSense.
 
-The Setup window tells you whether StickerSense found the DLL. Its Open the StickerSense Folder button opens the right folder. Older NVDA packages named the 64-bit file `nvdaControllerClient64.dll`; that name works too. The controller client is licensed under the LGPL by NV Access.
+The Setup window tells you whether StickerSense found the DLL. Its Open the StickerSense Folder button opens the right folder. Older NVDA packages named the 64-bit file `nvdaControllerClient64.dll`; that name works too.
 
-Without the DLL, StickerSense sends its speech as Windows notifications. NVDA reads those in most cases, but not all.
+Without the DLL, StickerSense speaks with the Windows voice instead, and nothing goes to your braille display. That's because NVDA only reads notifications from the app you're using, and while you read a chat, that's the chat app, not StickerSense.
 
 NVDA's browse mode moves a virtual cursor, not the real focus. Automatic descriptions and the shortcut follow the real focus. In chat apps such as WhatsApp, move through messages with the arrow keys in the message list, or switch to focus mode. In NVDA's settings, under Browse Mode, turning on "Automatically set system focus to focusable elements" also helps. If the shortcut says focus is on a large area, move focus to the message itself.
 
@@ -172,7 +189,7 @@ Open Settings from the StickerSense menu. You can:
 - Turn automatic descriptions on or off, and choose chat apps and browsers only, or every app.
 - Add what the sticker means to short descriptions.
 - Type two colons (::) in a chat to open the sticker picker. On by default.
-- Choose the graphics card or the processor for the model.
+- Choose where the model runs: automatically (the graphics card if it has its own memory, otherwise the processor), the graphics card, or the processor only.
 - Turn the quiet sounds on or off, and set their volume.
 - Choose your screen reader or the Windows voice for speech.
 - Change the shortcut keys.
@@ -241,12 +258,25 @@ powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1
 This publishes a self-contained build to `windows\publish\StickerSense-win-x64` and downloads the graphics card model into its `models\phi-3.5-vision` folder. Options:
 
 - `-Runtime win-arm64`: build for ARM64.
-- `-Variant Cpu`: bundle the processor-only model instead.
+- `-Variant Cpu`: bundle the processor-only model instead. It's the faster choice for computers with built-in graphics.
 - `-SkipModel`: leave the model out; users download it from Setup.
-- `-NvdaControllerDll path`: copy the NVDA controller client into the release.
+- `-SkipNvdaController`: leave out NVDA's controller client. By default the script downloads it from NV Access (a pinned version, checked against its SHA-256) and puts the DLL and its licence next to `StickerSense.exe`.
+- `-NvdaControllerDll path`: include this `nvdaControllerClient.dll` instead of downloading one.
 - `-Zip`: also make a zip file.
 
 Running the script again resumes an interrupted model download.
+
+### Testing on a Windows PC
+
+`StickerSense.exe` has a few command-line modes for testing and bug reports. They print plain text and JSON, and don't touch a running StickerSense:
+
+- `--self-test [--out report.json] [--model-dir folder] [--device auto|cpu|gpu] [--no-models]`: checks what can be checked without a person at the keyboard (graphics, screen reader detection and speech route, icon, image decoding, GIPHY parsing, the library, text recognition) and times the model's quick and detailed descriptions of two built-in test stickers. Exit code 0 when everything passed.
+- `--download-model directml|cpu [--to folder]`: downloads the model the way Setup does, printing progress, size and speed.
+- `--test-window`: a small stand-in chat with a sticker (an image named "Sticker from Test User, 10:00") and a message box.
+- `--watch-app name` (with a normal start): also treats that app as a chat app, for example `--watch-app StickerSense` for the test window. Not saved.
+- `--quit`: closes the running StickerSense, as Quit in its menu does.
+
+`windows\scripts\e2e-test.ps1` drives an installed StickerSense end to end with UI Automation and key presses: Setup, the main window, the notification area icon, the describe shortcut and its detail, automatic descriptions, and "::" with the picker. Run it on the signed-in, unlocked desktop (not over SSH); it closes everything it opens.
 
 ## Troubleshooting
 
@@ -255,7 +285,7 @@ Running the script again resumes an interrupted model download.
 - Imported WhatsApp stickers aren't described yet: that only happens while the computer is idle for 90 seconds or more, with battery saver off.
 - "The description model isn't installed yet": open Setup and download it.
 - "The description model couldn't start": choose "The processor only" in Settings, or download the processor model in Setup.
-- The first description after starting takes a while: the model loads in the background when StickerSense starts. After that, a description takes a few seconds on a graphics card, longer on the processor. Stickers heard before are instant.
+- The first description after starting takes a while: the model loads in the background when StickerSense starts. After that, a description takes a few seconds on a graphics card with its own memory, and about 10 seconds (25 for an animated sticker) on a fast processor. Stickers heard before are instant. See "How fast is it?" above.
 - Words on stickers aren't read exactly: install a text recognition (OCR) language. In Windows Settings, go to Time and language, Language and region, open your language's options, and add Optical character recognition.
 - To see what happened, choose Show Activity Log in Settings.
 
@@ -265,4 +295,4 @@ Running the script again resumes an interrupted model download.
 - Phi-3.5-vision-instruct, by Microsoft: MIT license.
 - SixLabors.ImageSharp: Six Labors Split License (Apache 2.0 for open source projects and small organisations). StickerSense stays on version 3.1 because version 4 needs a license key to build. Known 3.1 security advisories are in parts it doesn't use: TIFF images and histogram equalisation. ICC colour profiles are never read.
 - Interop.UIAutomationClient: MIT license.
-- NVDA controller client, by NV Access: LGPL. Not included; you add it yourself.
+- NVDA controller client, by NV Access: LGPL 2.1. The release includes `nvdaControllerClient.dll` unchanged, with its licence in `nvdaControllerClient-license.txt`. Its source code is at [github.com/nvaccess/nvda](https://github.com/nvaccess/nvda).

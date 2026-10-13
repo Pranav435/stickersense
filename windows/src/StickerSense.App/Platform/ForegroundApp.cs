@@ -155,6 +155,8 @@ internal static class ForegroundWindow
     public static void Force(IntPtr window)
     {
         if (window == IntPtr.Zero || NativeMethods.GetForegroundWindow() == window) return;
+        // Never share input state with the lock screen: the window shows when Windows is unlocked.
+        if (SessionLock.IsLocked()) return;
         var foregroundThread = NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out _);
         var ourThread = NativeMethods.GetCurrentThreadId();
         var attached = foregroundThread != 0 && foregroundThread != ourThread && NativeMethods.AttachThreadInput(ourThread, foregroundThread, true);

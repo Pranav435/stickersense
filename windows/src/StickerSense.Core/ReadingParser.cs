@@ -11,6 +11,15 @@ public static partial class ReadingParser
     [GeneratedRegex(@"<\|[a-z_0-9]+\|>", RegexOptions.IgnoreCase)]
     private static partial Regex SpecialToken();
 
+    // A label run into the previous line ("KIND: emoji, SUBJECT: smiling face"). Capitals only,
+    // so ordinary words such as "text:" inside a subject aren't split off.
+    [GeneratedRegex(@"[\s,;]+(?=(?:KIND|TYPE|SUBJECT|MOTION|TEXT|MEANING|VIBE)\s*[:：])")]
+    private static partial Regex InlineLabel();
+
+    // "MOTION: remains still" and the like: the model saw no change, so there's nothing to say.
+    [GeneratedRegex(@"^\W*(none|no (change|changes|motion|movement)|nothing( changes| moves)?|(it )?(remains?|stays?) (still|the same|unchanged|static)|static|unchanged|does(n't| not) (move|change))\b", RegexOptions.IgnoreCase)]
+    private static partial Regex NoMotion();
+
     [GeneratedRegex(@"^(sure|certainly|okay|ok|of course)\b[,!.]?\s*(here('s| is)[^:\n]*:\s*)?", RegexOptions.IgnoreCase)]
     private static partial Regex Filler();
 
@@ -45,7 +54,7 @@ public static partial class ReadingParser
     {
         var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var unlabelled = new List<string>();
-        foreach (var rawLine in SpecialToken().Replace(output, "\n").Split('\n'))
+        foreach (var rawLine in InlineLabel().Replace(SpecialToken().Replace(output, "\n"), "\n").Split('\n'))
         {
             var line = rawLine.Trim();
             if (line.Length == 0) continue;
@@ -73,7 +82,9 @@ public static partial class ReadingParser
             // The model ignored the format: use its first sentence.
             subject = FirstSentence(Filler().Replace(string.Join(" ", unlabelled), ""));
         }
-        if (animated) subject = JoinMotion(subject, fields.GetValueOrDefault("MOTION") ?? "");
+        var motion = fields.GetValueOrDefault("MOTION") ?? "";
+        if (NoMotion().IsMatch(motion)) motion = "";
+        if (animated) subject = JoinMotion(subject, motion);
 
         return Reading(kind ?? (animated ? StickerKind.Gif : StickerKind.Sticker), subject,
             fields.GetValueOrDefault("MEANING") ?? "", animated, ocrText, chromeLabel);

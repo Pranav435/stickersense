@@ -1,6 +1,3 @@
-using System.IO;
-using System.Text;
-using Microsoft.ML.OnnxRuntimeGenAI;
 using StickerSense.Core;
 
 namespace StickerSense.App.Engine;
@@ -8,28 +5,37 @@ namespace StickerSense.App.Engine;
 /// <summary>Which hardware the model runs on.</summary>
 internal enum EngineDevice
 {
-    /// <summary>The graphics card through DirectML when the DirectML model is installed, otherwise the processor.</summary>
+    /// <summary>
+    /// The graphics card through DirectML when the DirectML model is installed and the card has
+    /// memory of its own; otherwise the processor (faster than built-in graphics).
+    /// </summary>
     Automatic,
     ProcessorOnly,
+    /// <summary>The graphics card whenever the DirectML model is installed, even built-in graphics.</summary>
+    GraphicsCard,
 }
 
 /// <summary>
 /// Describes stickers on this PC with Phi-3.5-vision-instruct (int4 ONNX) through ONNX Runtime
-/// GenAI. The DirectML build runs on the graphics card and falls back to the processor if the
-/// card can't run it. One model is shared by every request; <see cref="DescriberGate"/> keeps
-/// user requests ahead of background work.
+/// GenAI, which runs in a separate engine process (<see cref="EngineHost"/>): a native fault in
+/// the model can't take StickerSense down, and a new engine starts after one. The DirectML build
+/// runs on the graphics card and falls back to the processor if the card can't run it. One model
+/// is shared by every request; <see cref="DescriberGate"/> keeps user requests ahead of
+/// background work.
 /// </summary>
 internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
 {
+    /// <summary>After this many engine failures in one session, stop restarting it by itself.</summary>
+    private const int MaxAutomaticRestarts = 3;
+
     private readonly Func<IReadOnlyList<string>> candidateDirectories;
     private readonly IActivityLog log;
     private readonly DescriberGate gate = new();
     private readonly object sync = new();
-    private readonly string scratch = Path.Combine(Path.GetTempPath(), "StickerSense", "frames");
-    private OgaHandle? oga;
-    private Task<LoadedModel>? loading;
-    private LoadedModel? loaded;
+    private Task<EngineProcess>? loading;
+    private EngineProcess? loaded;
     private EngineStatus status;
+    private int restarts;
 
     public PhiVisionDescriber(Func<IReadOnlyList<string>> candidateDirectories, IActivityLog log, DescriberOptions? options = null)
         : base(options)
@@ -41,8 +47,11 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
 
     public EngineDevice Device { get; private set; } = EngineDevice.Automatic;
 
-    /// <summary>"DirectML" or "processor" once loaded.</summary>
+    /// <summary>"the graphics card (DirectML)" or "the processor" once loaded.</summary>
     public string? RunningOn => loaded?.RunningOn;
+
+    /// <summary>Memory the engine process uses, in megabytes (0 when it isn't running).</summary>
+    public long EngineMemoryMegabytes => loaded?.WorkingSetMegabytes ?? 0;
 
     public string? ModelDirectory => ModelCatalog.FindInstalled(candidateDirectories());
 
@@ -69,7 +78,7 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
     /// <summary>Forget the loaded model and look for it again (after a download or a device change).</summary>
     public void Reload(EngineDevice device)
     {
-        LoadedModel? old;
+        EngineProcess? old;
         lock (sync)
         {
             Device = device;
@@ -77,7 +86,7 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
             loaded = null;
             loading = null;
         }
-        // Wait for any running request before freeing the model it uses.
+        // Wait for any running request before closing the engine it uses.
         _ = Task.Run(async () =>
         {
             using (await gate.EnterAsync(DescribePriority.Foreground, CancellationToken.None)) old?.Dispose();
@@ -102,9 +111,9 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
         StatusChanged?.Invoke(value);
     }
 
-    private Task<LoadedModel> EnsureLoadedAsync()
+    private Task<EngineProcess> EnsureLoadedAsync()
     {
-        Task<LoadedModel> current;
+        Task<EngineProcess> current;
         lock (sync)
         {
             if (loaded is not null) return Task.FromResult(loaded);
@@ -113,11 +122,11 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
             if (directory is null)
             {
                 status = CheckFiles();
-                return Task.FromException<LoadedModel>(DescribeException.EngineUnavailable(status));
+                return Task.FromException<EngineProcess>(DescribeException.EngineUnavailable(status));
             }
             var device = Device;
             status = new EngineStatus(EngineState.Loading);
-            current = loading = Task.Run(() => Load(directory, device));
+            current = loading = Task.Run(() => LoadAsync(directory, device));
         }
         StatusChanged?.Invoke(new EngineStatus(EngineState.Loading));
         _ = current.ContinueWith(t =>
@@ -130,11 +139,15 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
                     if (t.IsCompletedSuccessfully) t.Result.Dispose();
                     return;
                 }
-                if (t.IsCompletedSuccessfully) loaded = t.Result;
-                else loading = null; // allow another try
+                if (t.IsCompletedSuccessfully)
+                {
+                    loaded = t.Result;
+                    loaded.Stopped += message => OnEngineStopped(t.Result, message);
+                }
+                loading = null;
             }
             var error = t.Exception?.InnerException;
-            if (error is not null) log.Add($"Model failed to load: {error}");
+            if (error is not null) log.Add($"Model failed to load: {error.Message}");
             SetStatus(t.IsCompletedSuccessfully
                 ? new EngineStatus(EngineState.Ready)
                 : new EngineStatus(EngineState.LoadFailed, error?.Message ?? "unknown error"));
@@ -142,106 +155,82 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
         return current;
     }
 
-    private LoadedModel Load(string directory, EngineDevice device)
+    private Task<EngineProcess> LoadAsync(string directory, EngineDevice device)
     {
-        lock (sync) oga ??= new OgaHandle();
         var variant = ModelCatalog.DetectVariant(directory);
         log.Add($"Loading {variant} model from {directory}");
-        if (variant == ModelVariant.DirectML && device == EngineDevice.Automatic)
+        var tryGraphicsCard = false;
+        if (variant == ModelVariant.DirectML && device == EngineDevice.Automatic && Platform.GpuInfo.RecommendedAdapter() is null)
         {
-            try
-            {
-                return Create(directory, "dml", "the graphics card (DirectML)");
-            }
-            catch (OnnxRuntimeGenAIException e)
-            {
-                log.Add($"DirectML failed, using the processor instead: {e.Message}");
-            }
+            log.Add("The graphics are built in and share the computer's memory, so the model runs on the processor, which is faster on them.");
         }
-        return Create(directory, null, "the processor");
-    }
-
-    private LoadedModel Create(string directory, string? provider, string description)
-    {
-        var started = DateTime.UtcNow;
-        using var config = new Config(directory);
-        config.ClearProviders();
-        if (provider is not null) config.AppendProvider(provider);
-        var model = new Model(config);
-        LoadedModel? result = null;
-        try
+        else if (variant == ModelVariant.DirectML && device is EngineDevice.Automatic or EngineDevice.GraphicsCard)
         {
-            var processorConfig = Path.Combine(directory, "processor_config.json");
-            var numCrops = File.Exists(processorConfig) ? PhiVisionPrompt.ReadNumCrops(File.ReadAllText(processorConfig)) : 4;
-            result = new LoadedModel(model, new MultiModalProcessor(model), new Tokenizer(model), numCrops, description, provider == "dml");
-            WarmUp(result);
-            log.Add($"Model ready on {description} in {(DateTime.UtcNow - started).TotalSeconds:0.0}s");
-            return result;
+            tryGraphicsCard = true;
         }
-        catch
-        {
-            // Exactly one owner frees the model: the loaded bundle if it was made, else the model itself.
-            if (result is not null) result.Dispose();
-            else model.Dispose();
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// One two-token generation on a blank image. On a graphics card, the first run compiles
-    /// DirectML's kernels and sets up memory (seconds); doing it now keeps the quick-description
-    /// path ready, and a card that can't run the model fails here and falls back to the processor.
-    /// </summary>
-    private void WarmUp(LoadedModel model)
-    {
-        Directory.CreateDirectory(scratch);
-        var path = Path.Combine(scratch, $"warmup-{Guid.NewGuid():N}.png");
-        try
-        {
-            using (var blank = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(64, 64, new SixLabors.ImageSharp.PixelFormats.Rgba32(255, 255, 255)))
-            {
-                File.WriteAllBytes(path, ImagePrep.PngData(blank));
-            }
-            var request = new VisionRequest(StickerPrompts.ShortInstructions(Options.EffectiveLanguage), "Describe this sticker or image.", [], MaxNewTokens: 2, Temperature: 0);
-            Generate(model, request, [path], CancellationToken.None);
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (IOException)
-            {
-            }
-        }
+        return EngineProcess.StartAsync(directory, tryGraphicsCard, StickerPrompts.ShortInstructions(Options.EffectiveLanguage), message => log.Add(message));
     }
 
     protected override async Task<string> GenerateAsync(VisionRequest request, DescribePriority priority, CancellationToken ct)
     {
         for (var attempt = 1; ; attempt++)
         {
-            var model = await LoadedModelAsync(ct).ConfigureAwait(false);
+            var engine = await LoadedEngineAsync(ct).ConfigureAwait(false);
             using var lease = await gate.EnterAsync(priority, ct).ConfigureAwait(false);
             try
             {
-                return await GenerateWithAsync(model, request, lease.Token).ConfigureAwait(false);
+                var started = DateTime.UtcNow;
+                var reply = await engine.GenerateAsync(request, lease.Token).ConfigureAwait(false);
+                log.Add($"Model replied in {(DateTime.UtcNow - started).TotalSeconds:0.0}s ({request.Images.Count} image(s))");
+                return reply;
             }
-            catch (OnnxRuntimeGenAIException e) when (model.UsesGraphicsCard && attempt == 1)
+            catch (EngineFailedException e) when (e.OnGraphicsCard && attempt == 1)
             {
                 // E.g. the graphics card ran out of memory: carry on with the processor for this session.
-                log.Add($"DirectML failed while describing; switching to the processor. {e}");
+                log.Add($"DirectML failed while describing; switching to the processor. {e.Message}");
                 Reload(EngineDevice.ProcessorOnly);
             }
-            catch (OnnxRuntimeGenAIException e)
+            catch (EngineFailedException e)
             {
-                log.Add($"The model failed: {e}");
+                log.Add($"The model failed: {e.Message}");
                 throw DescribeException.Failed("the model ran into a problem. The activity log has the details", e);
+            }
+            catch (EngineStoppedException e)
+            {
+                // OnEngineStopped logs it and starts a new engine.
+                throw DescribeException.Failed("the description engine stopped. Try again in a few seconds", e);
             }
         }
     }
 
-    private async Task<LoadedModel> LoadedModelAsync(CancellationToken ct)
+    /// <summary>The engine process went away unexpectedly (a closed or replaced engine is ignored).</summary>
+    private void OnEngineStopped(EngineProcess engine, string message)
+    {
+        lock (sync)
+        {
+            if (!ReferenceEquals(loaded, engine)) return;
+            loaded = null;
+        }
+        engine.Dispose();
+        var again = Interlocked.Increment(ref restarts) <= MaxAutomaticRestarts;
+        log.Add(again ? $"{message} Starting it again." : $"{message} It has stopped {MaxAutomaticRestarts} times, so it starts again only when needed.");
+        SetStatus(CheckFiles());
+        if (again) _ = PrewarmQuietlyAsync();
+    }
+
+    private async Task PrewarmQuietlyAsync()
+    {
+        try
+        {
+            await EnsureLoadedAsync().ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // The status says what went wrong.
+        }
+    }
+
+    private async Task<EngineProcess> LoadedEngineAsync(CancellationToken ct)
     {
         try
         {
@@ -249,102 +238,20 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
         }
         catch (Exception e) when (e is not (OperationCanceledException or DescribeException))
         {
-            // Native library missing, unsupported graphics card, damaged model files…
+            // Engine couldn't start, unsupported graphics card, damaged model files…
             throw DescribeException.EngineUnavailable(new EngineStatus(EngineState.LoadFailed, e.Message));
         }
     }
 
-    private async Task<string> GenerateWithAsync(LoadedModel model, VisionRequest request, CancellationToken token)
-    {
-        Directory.CreateDirectory(scratch);
-        var paths = new List<string>();
-        try
-        {
-            foreach (var image in request.Images)
-            {
-                var path = Path.Combine(scratch, $"{Guid.NewGuid():N}.png");
-                await File.WriteAllBytesAsync(path, ImagePrep.PngData(image), token).ConfigureAwait(false);
-                paths.Add(path);
-            }
-            var started = DateTime.UtcNow;
-            var reply = await Task.Run(() => Generate(model, request, paths.ToArray(), token), token).ConfigureAwait(false);
-            log.Add($"Model replied in {(DateTime.UtcNow - started).TotalSeconds:0.0}s ({paths.Count} image(s))");
-            return reply;
-        }
-        finally
-        {
-            foreach (var path in paths)
-            {
-                try
-                {
-                    File.Delete(path);
-                }
-                catch (IOException)
-                {
-                }
-            }
-        }
-    }
-
-    private static string Generate(LoadedModel m, VisionRequest request, string[] imagePaths, CancellationToken ct)
-    {
-        var prompt = PhiVisionPrompt.Build(request.Instructions, request.Prompt, imagePaths.Length);
-        using var images = Images.Load(imagePaths);
-        using var inputs = m.Processor.ProcessImages(prompt, images);
-        int textTokens;
-        using (var sequences = m.Tokenizer.Encode(PhiVisionPrompt.TextOnly(prompt))) textTokens = sequences[0].Length;
-
-        using var parameters = new GeneratorParams(m.Model);
-        parameters.SetSearchOption("max_length", PhiVisionPrompt.MaxLength(textTokens, imagePaths.Length, m.NumCrops, request.MaxNewTokens));
-        parameters.SetSearchOption("do_sample", request.Temperature > 0);
-        if (request.Temperature > 0)
-        {
-            parameters.SetSearchOption("temperature", request.Temperature);
-            parameters.SetSearchOption("top_p", 0.9);
-            parameters.SetSearchOption("top_k", 40);
-        }
-        using var generator = new Generator(m.Model, parameters);
-        generator.SetInputs(inputs);
-        using var stream = m.Processor.CreateStream();
-        var output = new StringBuilder();
-        for (var i = 0; i < request.MaxNewTokens; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            generator.GenerateNextToken();
-            if (generator.IsDone()) break;
-            output.Append(stream.Decode(generator.GetNextTokens()[0]));
-            if (output.ToString().Contains("<|end|>", StringComparison.Ordinal)) break;
-        }
-        return output.ToString();
-    }
-
     public void Dispose()
     {
-        LoadedModel? model;
+        EngineProcess? engine;
         lock (sync)
         {
-            model = loaded;
+            engine = loaded;
             loaded = null;
             loading = null;
         }
-        model?.Dispose();
-        oga?.Dispose();
-    }
-
-    private sealed class LoadedModel(Model model, MultiModalProcessor processor, Tokenizer tokenizer, int numCrops, string runningOn, bool usesGraphicsCard) : IDisposable
-    {
-        public bool UsesGraphicsCard { get; } = usesGraphicsCard;
-        public Model Model { get; } = model;
-        public MultiModalProcessor Processor { get; } = processor;
-        public Tokenizer Tokenizer { get; } = tokenizer;
-        public int NumCrops { get; } = numCrops;
-        public string RunningOn { get; } = runningOn;
-
-        public void Dispose()
-        {
-            Tokenizer.Dispose();
-            Processor.Dispose();
-            Model.Dispose();
-        }
+        engine?.Dispose();
     }
 }

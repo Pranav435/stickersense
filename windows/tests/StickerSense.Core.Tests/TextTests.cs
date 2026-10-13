@@ -183,6 +183,42 @@ public class ReadingParserTests
     }
 
     [Fact]
+    public void ReadsRepliesThatContinueTheKindLine()
+    {
+        // Phi-3.5-vision, given a reply begun with "KIND:", sometimes keeps going on the same line.
+        var reading = ReadingParser.Parse("KIND: emoji, SUBJECT: smiling face with party hat, wishing happy birthday", false, "HAPPY BDAY");
+        Assert.Equal(StickerKind.Emoji, reading.Kind);
+        Assert.Equal("Smiling face with party hat, wishing happy birthday", reading.Subject);
+        // Lower-case words like "text:" inside a subject stay part of it.
+        reading = ReadingParser.Parse("KIND: sticker\nSUBJECT: sign with text: hello", false, "");
+        Assert.Equal("Sign with text: hello", reading.Subject);
+    }
+
+    [Fact]
+    public void LeavesOutMotionTheModelDidNotSee()
+    {
+        var reading = ReadingParser.Parse("KIND: emoji\nSUBJECT: smiling face with smiling eyes\nMOTION: remains still with a happy expression", true, "");
+        Assert.Equal("Smiling face with smiling eyes", reading.Subject);
+        reading = ReadingParser.Parse("KIND: emoji\nSUBJECT: smiling face\nMOTION: no change", true, "");
+        Assert.Equal("Smiling face", reading.Subject);
+        reading = ReadingParser.Parse("KIND: sticker\nSUBJECT: cartoon cat\nMOTION: still waves, then winks", true, "");
+        Assert.Equal("Cartoon cat, still waves, then winks", reading.Subject);
+    }
+
+    [Fact]
+    public void DoesNotRepeatWordsTheSubjectAlreadySays()
+    {
+        var reading = new StickerReading(StickerKind.Sticker, "A smiling face with a party hat and the text \"HAPPY BDAY\"", "HAPPY BDAY", "");
+        Assert.Equal("A smiling face with a party hat and the text \"HAPPY BDAY\".", SpokenText.Short(reading));
+        Assert.Equal("A smiling face with a party hat and the text \"HAPPY BDAY\"", SpokenText.ListLabel(reading));
+        reading = new StickerReading(StickerKind.Sticker, "Party hat", "HAPPY BDAY", "");
+        Assert.Equal("Party hat, “HAPPY BDAY”.", SpokenText.Short(reading));
+        // Whole words only: "hi" is not in "Shiba".
+        reading = new StickerReading(StickerKind.Sticker, "Shiba dog shrugging", "hi!", "");
+        Assert.Equal("Shiba dog shrugging, “hi!”.", SpokenText.Short(reading));
+    }
+
+    [Fact]
     public void DropsChatChromeTheModelCopied()
     {
         var reading = ReadingParser.Parse("KIND: sticker\nSUBJECT: Party popper\nTEXT: yay 4:05 PM\nMEANING: celebrating", false, "yay");
@@ -320,17 +356,6 @@ public class PromptTests
     {
         var prompt = PhiVisionPrompt.Build("Be brief.", "Describe.", 2);
         Assert.Equal("<|system|>\nBe brief.<|end|>\n<|user|>\n<|image_1|>\n<|image_2|>\nDescribe.<|end|>\n<|assistant|>\n", prompt);
-        Assert.Equal("<|system|>\nBe brief.<|end|>\n<|user|>\n\n\nDescribe.<|end|>\n<|assistant|>\n", PhiVisionPrompt.TextOnly(prompt));
-    }
-
-    [Fact]
-    public void BudgetsTokensForImages()
-    {
-        Assert.Equal(781, PhiVisionPrompt.MaxImageTokens(4));
-        Assert.Equal(300 + 4 * 781 + 140 + 32, PhiVisionPrompt.MaxLength(300, 4, 4, 140));
-        const string config = """{"processor":{"transforms":[{"operation":{"name":"decode_image"}},{"operation":{"name":"phi3_image_transform","attrs":{"num_crops":16,"num_img_tokens":144}}}]}}""";
-        Assert.Equal(16, PhiVisionPrompt.ReadNumCrops(config));
-        Assert.Equal(4, PhiVisionPrompt.ReadNumCrops("{}"));
-        Assert.Equal(4, PhiVisionPrompt.ReadNumCrops("not json"));
+        Assert.EndsWith("<|assistant|>\nKIND:", PhiVisionPrompt.Build("Be brief.", "Describe.", 1, "KIND:"));
     }
 }

@@ -121,6 +121,8 @@ public static class StickerDetector
         return LabelClassifier.Classify(target.Text, target.Bounds.Width / scale, target.Bounds.Height / scale, target.IsImage);
     }
 
-    public static bool IsWatched(string appName, AutoScope scope) =>
-        scope == AutoScope.Everywhere || ChatApps.Contains(appName);
+    /// <param name="alsoWatched">Extra process names to treat as chat apps (a test-only allowance, e.g. the self-test chat window).</param>
+    public static bool IsWatched(string appName, AutoScope scope, IReadOnlyCollection<string>? alsoWatched = null) =>
+        scope == AutoScope.Everywhere || ChatApps.Contains(appName)
+        || (alsoWatched is not null && alsoWatched.Contains(appName, StringComparer.OrdinalIgnoreCase));
 }

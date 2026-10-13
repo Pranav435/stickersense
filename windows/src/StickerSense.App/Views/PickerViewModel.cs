@@ -406,11 +406,13 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
         try
         {
             var outcome = await Paster.PasteAsync(file, TargetWindow, CharactersToReplace);
+            app.Log.Add($"Picker: {outcome.Message} (replaced {CharactersToReplace} typed character(s))");
             app.Earcons.Play(Earcon.Tick);
             app.Announcer.Say(outcome.Message);
         }
         catch (Exception e) when (e is ImagePrepException or IOException or System.Runtime.InteropServices.ExternalException)
         {
+            app.Log.Add($"Picker: paste failed: {e.Message}");
             app.Earcons.Play(Earcon.Failed);
             app.Announcer.Say("Couldn't paste that sticker.");
             return;

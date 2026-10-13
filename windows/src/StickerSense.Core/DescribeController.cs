@@ -49,6 +49,9 @@ public interface IDescribeSettings
     bool AutoDescribe { get; }
     AutoScope AutoScope { get; }
     bool IncludeMeaning { get; }
+
+    /// <summary>Extra process names treated as chat apps (test-only, from the command line).</summary>
+    IReadOnlyCollection<string> AlsoWatchedApps => [];
 }
 
 public interface IActivityLog
@@ -270,7 +273,7 @@ public sealed class DescribeController
             job = null;
         }
         autoPending?.Cancel();
-        if (target.IsOwnApp || !StickerDetector.IsWatched(target.AppName, settings.AutoScope)) return;
+        if (target.IsOwnApp || !StickerDetector.IsWatched(target.AppName, settings.AutoScope, settings.AlsoWatchedApps)) return;
         if (target.IsSameItem(lastAutoTarget)) return;
         lastAutoTarget = target;
 

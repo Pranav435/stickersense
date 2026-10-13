@@ -8,11 +8,13 @@ namespace StickerSense.App;
 internal sealed class StickerSenseApp : Application
 {
     private readonly bool launchedAtSignIn;
+    private readonly IReadOnlyList<string> alsoWatched;
     private AppController? controller;
 
-    public StickerSenseApp(bool launchedAtSignIn)
+    public StickerSenseApp(bool launchedAtSignIn, IReadOnlyList<string> alsoWatched)
     {
         this.launchedAtSignIn = launchedAtSignIn;
+        this.alsoWatched = alsoWatched;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
     }
 
@@ -25,7 +27,7 @@ internal sealed class StickerSenseApp : Application
         DispatcherUnhandledException += OnUnhandledException;
         try
         {
-            controller = new AppController();
+            controller = new AppController(alsoWatched);
             await controller.StartAsync(launchedAtSignIn);
         }
         catch (Exception error)
@@ -38,6 +40,13 @@ internal sealed class StickerSenseApp : Application
 
     /// <summary>Starting StickerSense again (Start menu, desktop) brings up its main window, like reopening the Mac app.</summary>
     public void ShowMainWindow() => controller?.ShowMain();
+
+    /// <summary><c>StickerSense.exe --quit</c> from another process: the same as Quit in the tray menu.</summary>
+    public void Quit()
+    {
+        if (controller is not null) controller.Quit();
+        else Shutdown();
+    }
 
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {

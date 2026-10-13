@@ -116,11 +116,35 @@ internal static class Fixtures
         return NormalizedBox.FromPixels(x, y, text.Length * cell, size, w, h);
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentBag<string> TempDirectories = CleanUpAtExit();
+
+    /// <summary>A new empty folder under %TEMP%, deleted when the test run ends.</summary>
     public static string TempDirectory()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StickerSenseTests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
+        TempDirectories.Add(path);
         return path;
+    }
+
+    private static System.Collections.Concurrent.ConcurrentBag<string> CleanUpAtExit()
+    {
+        var bag = new System.Collections.Concurrent.ConcurrentBag<string>();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            foreach (var path in bag)
+            {
+                try
+                {
+                    Directory.Delete(path, recursive: true);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Still in use (a library file a test left open): the OS cleans %TEMP% eventually.
+                }
+            }
+        };
+        return bag;
     }
 
     // MARK: Captions

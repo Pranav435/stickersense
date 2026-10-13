@@ -82,6 +82,9 @@ internal sealed class SettingsStore : INotifyPropertyChanged, IDescribeSettings
     /// <summary>Typing "::" in a chat opens the sticker picker.</summary>
     public bool ColonTrigger { get => values.ColonTrigger; set => Update(values with { ColonTrigger = value }); }
 
+    /// <summary>Test-only: extra processes treated as chat apps (from --watch-app; never saved).</summary>
+    public IReadOnlyCollection<string> AlsoWatchedApps { get; set; } = [];
+
     public KeyCombo DescribeCombo => KeyCombo.For(DescribeKey, "D");
     public KeyCombo PickerCombo => KeyCombo.For(PickerKey, "S");
     public KeyCombo HistoryCombo => KeyCombo.For(HistoryKey, "H");

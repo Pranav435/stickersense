@@ -110,13 +110,19 @@ public interface IStickerDescriber
         CancellationToken ct = default);
 }
 
-/// <summary>One generation request for a vision-language model. The images are prepared (flattened, sized).</summary>
+/// <summary>
+/// One generation request for a vision-language model. The images are prepared (flattened, sized).
+/// <paramref name="ReplyStart"/> is written as the start of the model's own reply, which it then
+/// continues: small models that ignore "reply with these lines" follow a reply already begun with
+/// "KIND:". Engines put it after the assistant tag; the reply passed back starts with it.
+/// </summary>
 public sealed record VisionRequest(
     string Instructions,
     string Prompt,
     IReadOnlyList<Image<Rgba32>> Images,
     int MaxNewTokens,
-    double Temperature);
+    double Temperature,
+    string ReplyStart = "");
 
 /// <summary>
 /// Shared logic for vision-language-model describers: frame preparation, prompts and parsing.
@@ -141,7 +147,7 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
 
     public virtual Task PrewarmDetailAsync(CancellationToken ct = default) => PrewarmAsync(ct);
 
-    /// <summary>Generates the model's reply text for one request.</summary>
+    /// <summary>Generates the model's reply text for one request: what follows <see cref="VisionRequest.ReplyStart"/>.</summary>
     protected abstract Task<string> GenerateAsync(VisionRequest request, DescribePriority priority, CancellationToken ct);
 
     public async Task<StickerReading> ReadAsync(
@@ -165,8 +171,9 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
                 StickerPrompts.ShortPrompt(prepared.Count, hint, context.Label, language, Options.IncludeMeaning),
                 prepared,
                 MaxNewTokens: 100,
-                Temperature: 0.2);
-            var output = await GenerateGuardedAsync(request, priority, ct).ConfigureAwait(false);
+                Temperature: 0.2,
+                ReplyStart: "KIND:");
+            var output = request.ReplyStart + await GenerateGuardedAsync(request, priority, ct).ConfigureAwait(false);
             return ReadingParser.Parse(output, animated, hint, chromeLabel);
         }
         finally

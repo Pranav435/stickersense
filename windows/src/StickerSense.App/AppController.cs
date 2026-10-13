@@ -25,9 +25,11 @@ internal sealed class AppController : IDisposable, IColonTriggerHost
     private TrayIcon? tray;
     private bool listening;
 
-    public AppController()
+    public AppController(IReadOnlyList<string> alsoWatched)
     {
         app = new AppServices(dispatcher);
+        app.Settings.AlsoWatchedApps = alsoWatched;
+        if (alsoWatched.Count > 0) app.Log.Add($"Test mode: also watching {string.Join(", ", alsoWatched)}");
         colonTrigger = new ColonTrigger(this);
         keyboard.KeyPressed += key => _ = colonTrigger.KeyPressedAsync(key);
     }
@@ -86,14 +88,17 @@ internal sealed class AppController : IDisposable, IColonTriggerHost
     {
         hotkeys.UnregisterAll();
         var failed = new List<string>();
+        var registered = new List<string>();
         void Register(KeyCombo combo, Action action)
         {
-            if (!hotkeys.Register(combo, action)) failed.Add(combo.SpokenName);
+            if (hotkeys.Register(combo, action)) registered.Add(combo.SpokenName);
+            else failed.Add(combo.SpokenName);
         }
         Register(app.Settings.DescribeCombo, DescribePressed);
         Register(app.Settings.PickerCombo, ShowPicker);
         Register(app.Settings.HistoryCombo, ShowHistory);
         Register(app.Settings.AutoToggleCombo, ToggleAuto);
+        if (registered.Count > 0) app.Log.Add($"Shortcuts registered: {string.Join(", ", registered)}.");
         if (failed.Count == 0) return;
         var message = $"StickerSense couldn't use the shortcut {string.Join(" and ", failed)} because it's already in use. Choose a different key in StickerSense Settings.";
         app.Log.Add(message);
@@ -139,6 +144,8 @@ internal sealed class AppController : IDisposable, IColonTriggerHost
     bool IColonTriggerHost.Enabled => app.Settings.ColonTrigger;
 
     AutoScope IColonTriggerHost.Scope => app.Settings.AutoScope;
+
+    IReadOnlyCollection<string> IColonTriggerHost.AlsoWatchedApps => app.Settings.AlsoWatchedApps;
 
     (string AppName, bool IsOwnApp, object Window) IColonTriggerHost.Foreground()
     {
@@ -218,7 +225,7 @@ internal sealed class AppController : IDisposable, IColonTriggerHost
         DescribePressed();
     }
 
-    private void Quit()
+    public void Quit()
     {
         windows.CloseAll();
         Application.Current.Shutdown();

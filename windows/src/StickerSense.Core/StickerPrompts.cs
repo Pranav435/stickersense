@@ -114,62 +114,21 @@ public static class StickerPrompts
     }
 }
 
-/// <summary>Prompt format and token budget for Phi-3 / Phi-3.5 vision (ONNX Runtime GenAI "phi3v").</summary>
+/// <summary>Prompt format for Phi-3 / Phi-3.5 vision (ONNX Runtime GenAI "phi3v"). Its image inputs are in <see cref="PhiVisionInputs"/>.</summary>
 public static class PhiVisionPrompt
 {
-    /// <summary>Chat template of Phi-3.5-vision-instruct, with one <c>&lt;|image_N|&gt;</c> tag per image.</summary>
-    public static string Build(string instructions, string prompt, int imageCount)
+    /// <summary>
+    /// Chat template of Phi-3.5-vision-instruct, with one <c>&lt;|image_N|&gt;</c> tag per image,
+    /// ending with the start of the reply (<see cref="VisionRequest.ReplyStart"/>) for the model to continue.
+    /// </summary>
+    public static string Build(string instructions, string prompt, int imageCount, string replyStart = "")
     {
         var b = new StringBuilder();
         b.Append("<|system|>\n").Append(instructions).Append("<|end|>\n");
         b.Append("<|user|>\n");
         for (var i = 1; i <= imageCount; i++) b.Append("<|image_").Append(i).Append("|>\n");
         b.Append(prompt).Append("<|end|>\n");
-        b.Append("<|assistant|>\n");
+        b.Append("<|assistant|>\n").Append(replyStart);
         return b.ToString();
-    }
-
-    /// <summary>The prompt with the image tags removed — what the tokenizer sees as text.</summary>
-    public static string TextOnly(string builtPrompt) =>
-        System.Text.RegularExpressions.Regex.Replace(builtPrompt, @"<\|image_\d+\|>", "");
-
-    /// <summary>
-    /// Upper bound of tokens one image takes with the Phi-3 HD transform: (crops + 1) × 144
-    /// feature tokens, plus one separator and 12 newline tokens per row (at most crops + 1 rows).
-    /// </summary>
-    public static int MaxImageTokens(int numCrops) => (numCrops + 1) * 144 + 1 + (numCrops + 1) * 12;
-
-    /// <summary>
-    /// The model's <c>max_length</c> for one request. The KV cache is allocated to this size up front
-    /// (past_present_share_buffer), so keep it tight rather than using the full context.
-    /// </summary>
-    public static int MaxLength(int textTokens, int imageCount, int numCrops, int maxNewTokens) =>
-        textTokens + imageCount * MaxImageTokens(numCrops) + maxNewTokens + 32;
-
-    /// <summary>Reads num_crops from the model's processor_config.json (4 when absent).</summary>
-    public static int ReadNumCrops(string processorConfigJson)
-    {
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(processorConfigJson);
-            if (doc.RootElement.TryGetProperty("processor", out var processor) &&
-                processor.TryGetProperty("transforms", out var transforms))
-            {
-                foreach (var transform in transforms.EnumerateArray())
-                {
-                    if (transform.TryGetProperty("operation", out var op) &&
-                        op.TryGetProperty("attrs", out var attrs) &&
-                        attrs.TryGetProperty("num_crops", out var crops) &&
-                        crops.TryGetInt32(out var value) && value > 0)
-                    {
-                        return value;
-                    }
-                }
-            }
-        }
-        catch (System.Text.Json.JsonException)
-        {
-        }
-        return 4;
     }
 }

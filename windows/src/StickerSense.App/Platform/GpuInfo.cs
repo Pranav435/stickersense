@@ -88,4 +88,17 @@ internal static unsafe class GpuInfo
     /// <summary>A real (hardware) graphics adapter DirectML can use.</summary>
     public static Adapter? BestHardwareAdapter() =>
         Adapters().Where(a => !a.IsSoftware).OrderByDescending(a => a.DedicatedMemory).FirstOrDefault();
+
+    /// <summary>Graphics memory of its own that makes the graphics card model worth it.</summary>
+    public const ulong MinimumDedicatedMemory = 2UL * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// The graphics card to recommend the DirectML model for: one with at least 2 GB of its own
+    /// memory. Built-in graphics that share the computer's memory run the model far slower than the
+    /// processor does (measured on Intel UHD Graphics 750 next to an i7-11700: about 100 seconds a
+    /// sticker against about 10), so for those the processor model is recommended.
+    /// </summary>
+    public static Adapter? RecommendedAdapter() => BestHardwareAdapter() is { } best && IsWorthUsing(best) ? best : null;
+
+    public static bool IsWorthUsing(Adapter adapter) => !adapter.IsSoftware && adapter.DedicatedMemory >= MinimumDedicatedMemory;
 }

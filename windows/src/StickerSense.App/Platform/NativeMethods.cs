@@ -218,9 +218,12 @@ internal static partial class NativeMethods
     /// <summary>Flag for ToUnicodeEx: don't change the keyboard state (keeps pending dead keys intact). Windows 10 1607+.</summary>
     public const uint TOUNICODE_KEEP_STATE = 0x4;
 
-    [DllImport("user32.dll")]
-    public static extern int ToUnicodeEx(uint virtualKey, uint scanCode, byte[] keyState,
-        [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 4)] char[] buffer, int bufferSize, uint flags, IntPtr layout);
+    /// <remarks>
+    /// Raw pointers, not arrays: ToUnicodeEx writes UTF-16 characters, and an array marshalled the
+    /// default (ANSI) way gets a native buffer of one byte per character, which it overruns.
+    /// </remarks>
+    [LibraryImport("user32.dll")]
+    public static unsafe partial int ToUnicodeEx(uint virtualKey, uint scanCode, byte* keyState, char* buffer, int bufferSize, uint flags, IntPtr layout);
 
     public const ushort VK_BACK = 0x08;
     public const ushort VK_CAPITAL = 0x14;

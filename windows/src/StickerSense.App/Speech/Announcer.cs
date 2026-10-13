@@ -26,6 +26,12 @@ internal enum SpeechOutput
 /// and the Windows voice when no screen reader is running. Safe to call from any thread.
 /// </summary>
 /// <remarks>
+/// NVDA ignores UI Automation notifications from any app except the one with focus, so while
+/// someone is in a chat app it would never read StickerSense's notifications. Without its
+/// controller client, StickerSense therefore uses the Windows voice for NVDA users, and
+/// notifications only while one of its own windows is in front.
+/// </remarks>
+/// <remarks>
 /// Fire and forget: the screen reader is never polled to check that it spoke — every such query
 /// competes with the screen reader's own work. Which screen reader runs is read from the process
 /// list, at most every few seconds.
@@ -37,6 +43,7 @@ internal sealed class Announcer : IAnnouncer, IDisposable
     private NotificationWindow? notifier;
     private SpeechSynthesizer? synthesizer;
     private (ScreenReaderKind Kind, DateTime At) detected = (ScreenReaderKind.None, DateTime.MinValue);
+    private string? lastRoute;
 
     public Announcer(Dispatcher dispatcher, string appDirectory)
     {
@@ -47,6 +54,9 @@ internal sealed class Announcer : IAnnouncer, IDisposable
     public NvdaController Nvda { get; }
 
     public SpeechOutput Output { get; set; } = SpeechOutput.ScreenReader;
+
+    /// <summary>Notes in the activity log whenever the way speech goes out changes.</summary>
+    public IActivityLog? Log { get; set; }
 
     /// <summary>Which screen reader is running (checked at most every few seconds).</summary>
     public ScreenReaderKind ScreenReader(bool refresh = false)
@@ -66,27 +76,75 @@ internal sealed class Announcer : IAnnouncer, IDisposable
             dispatcher.BeginInvoke(() => Say(text, interrupt));
             return;
         }
+        if (SessionLock.IsLocked())
+        {
+            Route(null);
+            return;
+        }
         if (Output == SpeechOutput.WindowsVoice)
         {
+            Route("the Windows voice (chosen in Settings)");
             SpeakWithWindowsVoice(text, interrupt);
             return;
         }
         switch (ScreenReader())
         {
             case ScreenReaderKind.Nvda:
-                if (!Nvda.Speak(text, interrupt)) Notify(text, interrupt);
+                if (Nvda.Speak(text, interrupt))
+                {
+                    Route("NVDA's controller client");
+                }
+                else if (OwnsForegroundWindow())
+                {
+                    Route("a UI Automation notification (NVDA, StickerSense window in front)");
+                    Notify(text, interrupt);
+                }
+                else
+                {
+                    Route(Nvda.IsLoaded
+                        ? "the Windows voice (NVDA's controller client didn't answer)"
+                        : "the Windows voice (NVDA only reads notifications from the app in front; add nvdaControllerClient.dll to speak through NVDA)");
+                    SpeakWithWindowsVoice(text, interrupt);
+                }
                 break;
             case ScreenReaderKind.Jaws:
-                if (!jaws.Say(text, interrupt)) Notify(text, interrupt);
+                if (jaws.Say(text, interrupt))
+                {
+                    Route("JAWS");
+                }
+                else
+                {
+                    Route("a UI Automation notification (JAWS didn't answer)");
+                    Notify(text, interrupt);
+                }
                 break;
             case ScreenReaderKind.Narrator:
             case ScreenReaderKind.Other:
+                Route("a UI Automation notification");
                 Notify(text, interrupt);
                 break;
             default:
+                Route("the Windows voice (no screen reader running)");
                 SpeakWithWindowsVoice(text, interrupt);
                 break;
         }
+    }
+
+    /// <summary>Logs how speech goes out when that changes; null: not speaking because Windows is locked.</summary>
+    private void Route(string? route)
+    {
+        var message = route is null ? "Not speaking while Windows is locked." : $"Speaking through {route}.";
+        if (message == lastRoute) return;
+        lastRoute = message;
+        Log?.Add(message);
+    }
+
+    private static bool OwnsForegroundWindow()
+    {
+        var window = NativeMethods.GetForegroundWindow();
+        if (window == IntPtr.Zero) return false;
+        NativeMethods.GetWindowThreadProcessId(window, out var process);
+        return process == (uint)Environment.ProcessId;
     }
 
     /// <summary>A UI Automation notification event; Narrator (and NVDA without its DLL) speak and braille it.</summary>
