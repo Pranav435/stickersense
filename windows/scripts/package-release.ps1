@@ -37,6 +37,9 @@
 
 .PARAMETER Zip
     Also create <Output>.zip.
+
+.PARAMETER Version
+    The release version stamped into StickerSense.exe, like 1.2.0. Default: the project's own.
 #>
 [CmdletBinding()]
 param(
@@ -54,7 +57,9 @@ param(
 
     [switch] $SkipModel,
 
-    [switch] $Zip
+    [switch] $Zip,
+
+    [string] $Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,7 +87,9 @@ function Say([string] $message) { Write-Host $message }
 
 # 1. Publish the app, self-contained so no .NET runtime needs installing.
 Say "Publishing StickerSense for $Runtime to $Output"
-& dotnet publish $project --configuration Release --runtime $Runtime --self-contained true --output $Output -p:PublishSingleFile=false
+$versionArgs = @()
+if ($Version) { $versionArgs = @("-p:Version=$Version", "-p:FileVersion=$Version.0", "-p:InformationalVersion=$Version") }
+& dotnet publish $project --configuration Release --runtime $Runtime --self-contained true --output $Output -p:PublishSingleFile=false @versionArgs
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
 
 Copy-Item (Join-Path $windowsRoot 'README.md') (Join-Path $Output 'README.md') -Force

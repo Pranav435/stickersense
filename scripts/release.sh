@@ -53,7 +53,7 @@ assets=("$OUT/StickerSense-Mac.zip")
 # Windows.
 win_sums=""
 if [[ "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 ]]; then
-  windows/scripts/build-release-remote.sh "$STICKERSENSE_WINDOWS_HOST" "$OUT"
+  windows/scripts/build-release-remote.sh "$STICKERSENSE_WINDOWS_HOST" "$OUT" "$version"
   for zip in StickerSense-Windows-x64.zip StickerSense-Windows-x64-app-only.zip; do
     size=$(stat -f %z "$OUT/$zip")
     (( size < 2000000000 )) || fail "$zip is over GitHub's 2 GB limit."

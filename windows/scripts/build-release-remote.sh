@@ -3,13 +3,14 @@
 # them back. Needs OpenSSH Server on the PC (key login) and PowerShell; installs the .NET 8 SDK for
 # that user (no admin) if it's missing. Used by scripts/release.sh.
 #
-#   windows/scripts/build-release-remote.sh user@windows-pc <output-folder>
+#   windows/scripts/build-release-remote.sh user@windows-pc <output-folder> [version]
 #
 # Produces StickerSense-Windows-x64.zip (app plus the fast model, works offline straight away) and
 # StickerSense-Windows-x64-app-only.zip (the app alone; Setup downloads the model).
 set -euo pipefail
 host="${1:?Usage: windows/scripts/build-release-remote.sh user@windows-pc <output-folder>}"
-out="${2:?Usage: windows/scripts/build-release-remote.sh user@windows-pc <output-folder>}"
+out="${2:?Usage: windows/scripts/build-release-remote.sh user@windows-pc <output-folder> [version]}"
+version="${3:-}"
 ROOT="${0:A:h:h:h}"
 mkdir -p "$out"
 
@@ -26,7 +27,7 @@ run_ps '$w = Join-Path $env:USERPROFILE "StickerSense-release-build"; Remove-Ite
 scp -q "$tmp/src.zip" "$host:StickerSense-release-build/src.zip"
 rm -rf "$tmp"
 
-run_ps '
+run_ps "\$version = '$version'"'
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $work = Join-Path $env:USERPROFILE "StickerSense-release-build"
@@ -52,10 +53,12 @@ $package = Join-Path $work "src\windows\scripts\package-release.ps1"
 $cache = Join-Path $env:LOCALAPPDATA "StickerSense-release-cache\qwen3-vl-2b"
 $modelDir = Join-Path $work "StickerSense-Windows-x64\models\qwen3-vl-2b"
 if (Test-Path $cache) { New-Item -ItemType Directory $modelDir -Force | Out-Null; Copy-Item (Join-Path $cache "*") $modelDir -Recurse -Force }
-& $package -Zip -Output (Join-Path $work "StickerSense-Windows-x64")
+$versionArg = @{}
+if ($version) { $versionArg = @{ Version = $version } }
+& $package -Zip -Output (Join-Path $work "StickerSense-Windows-x64") @versionArg
 New-Item -ItemType Directory $cache -Force | Out-Null
 Copy-Item (Join-Path $modelDir "*") $cache -Recurse -Force
-& $package -Zip -SkipModel -Output (Join-Path $work "StickerSense-Windows-x64-app-only")
+& $package -Zip -SkipModel -Output (Join-Path $work "StickerSense-Windows-x64-app-only") @versionArg
 '
 
 scp -q "$host:StickerSense-release-build/StickerSense-Windows-x64.zip" "$host:StickerSense-release-build/StickerSense-Windows-x64-app-only.zip" "$out/"
