@@ -12,12 +12,32 @@ namespace StickerSense.App.Engine;
 /// engine process (<see cref="EngineHost"/>), never in the app itself. Images go to the model
 /// straight from memory, with one crop each (<see cref="PhiVisionInputs"/>).
 /// </summary>
-internal sealed class PhiModel : IDisposable
+/// <summary>A vision-language model loaded in the engine process.</summary>
+internal interface IEngineModel : IDisposable
+{
+    /// <summary>"the graphics card (DirectML)" or "the processor".</summary>
+    string RunningOn { get; }
+
+    bool UsesGraphicsCard { get; }
+
+    /// <summary>The model's reply: what follows <see cref="VisionRequest.ReplyStart"/>.</summary>
+    string Generate(VisionRequest request, CancellationToken ct);
+
+    /// <summary>Loads whichever model the folder's genai_config.json describes.</summary>
+    public static IEngineModel Load(EngineLoadOptions options, Action<string> log) =>
+        ModelCatalog.ModelType(options.Directory) is "qwen3_vl" or "qwen2_5_vl"
+            ? QwenModel.Load(options, log)
+            : PhiModel.Load(options, log);
+}
+
+internal sealed class PhiModel : IEngineModel
 {
     private readonly Model model;
     private readonly Tokenizer tokenizer;
     /// <summary>The image encoder takes float16 pixel values (the DirectML build) rather than float32.</summary>
     private readonly bool halfPixels;
+
+    private Action<string> log = _ => { };
 
     private PhiModel(Model model, Tokenizer tokenizer, string runningOn, bool usesGraphicsCard, bool halfPixels)
     {
@@ -39,38 +59,42 @@ internal sealed class PhiModel : IDisposable
     /// the first description quick, and a card that can't run the model fails here, so the
     /// processor takes over.
     /// </summary>
-    public static PhiModel Load(string directory, bool tryGraphicsCard, string warmUpInstructions, Action<string> log)
+    public static PhiModel Load(EngineLoadOptions options, Action<string> log)
     {
-        if (tryGraphicsCard)
+        if (options.TryGraphicsCard)
         {
             try
             {
-                return Create(directory, "dml", "the graphics card (DirectML)", warmUpInstructions, log);
+                return Create(options, "dml", "the graphics card (DirectML)", log);
             }
             catch (OnnxRuntimeGenAIException e)
             {
                 log($"DirectML failed, using the processor instead: {e.Message}");
             }
         }
-        return Create(directory, null, "the processor", warmUpInstructions, log);
+        return Create(options, null, "the processor", log);
     }
 
-    private static PhiModel Create(string directory, string? provider, string description, string warmUpInstructions, Action<string> log)
+    private static PhiModel Create(EngineLoadOptions options, string? provider, string description, Action<string> log)
     {
         var started = DateTime.UtcNow;
+        var directory = options.Directory;
         using var config = new Config(directory);
         config.ClearProviders();
         if (provider is not null) config.AppendProvider(provider);
+        // The vision and embedding models use the decoder's session options unless they have their own.
+        ApplyThreads(config, options.Threads);
         var model = new Model(config);
         PhiModel? result = null;
         try
         {
             // The DirectML build's image encoder takes 16-bit pixel values; the processor build's, 32-bit.
             var halfPixels = ModelCatalog.DetectVariant(directory) == ModelVariant.DirectML;
-            result = new PhiModel(model, new Tokenizer(model), description, provider == "dml", halfPixels);
-            using (var blank = new Image<Rgba32>(64, 64, new Rgba32(255, 255, 255)))
+            result = new PhiModel(model, new Tokenizer(model), description, provider == "dml", halfPixels) { log = log };
+            if (options.WarmUp || provider is not null)
             {
-                result.Generate(new VisionRequest(warmUpInstructions, "Describe this sticker or image.", [blank], MaxNewTokens: 2, Temperature: 0), CancellationToken.None);
+                using var blank = new Image<Rgba32>(64, 64, new Rgba32(255, 255, 255));
+                result.Generate(new VisionRequest(options.WarmUpInstructions, "Describe this sticker or image.", [blank], MaxNewTokens: 2, Temperature: 0), CancellationToken.None);
             }
             log($"Model ready on {description} in {(DateTime.UtcNow - started).TotalSeconds:0.0}s");
             return result;
@@ -84,9 +108,18 @@ internal sealed class PhiModel : IDisposable
         }
     }
 
+    /// <summary>Processor threads for every part of the model (the vision and embedding parts use the decoder's options).</summary>
+    internal static void ApplyThreads(Config config, int threads)
+    {
+        if (threads <= 0) return;
+        var count = threads.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        config.Overlay("{\"model\":{\"decoder\":{\"session_options\":{\"intra_op_num_threads\":" + count + "}}}}");
+    }
+
     /// <summary>The model's reply: what follows <see cref="VisionRequest.ReplyStart"/>.</summary>
     public string Generate(VisionRequest request, CancellationToken ct)
     {
+        var started = DateTime.UtcNow;
         var imageCount = request.Images.Count;
         var prompt = PhiVisionPrompt.Build(request.Instructions, request.Prompt, imageCount, request.ReplyStart);
         var chunks = new List<int[]>();
@@ -95,19 +128,19 @@ internal sealed class PhiModel : IDisposable
             using var sequences = tokenizer.Encode(chunk);
             chunks.Add(sequences[0].ToArray());
         }
-        var inputIds = PhiVisionInputs.InputIds(chunks, imageCount);
-        var pixels = PhiVisionInputs.PixelValues(request.Images);
+        var batch = PhiVisionInputs.Prepare(request.Images);
+        var inputIds = PhiVisionInputs.InputIds(chunks, batch.TokenCounts);
         ct.ThrowIfCancellationRequested();
 
         // GenAI reads these buffers in place, so they stay pinned until the generator is gone.
-        Array pixelData = halfPixels ? Array.ConvertAll(pixels, v => (Half)v) : pixels;
-        var sizes = PhiVisionInputs.ImageSizes(imageCount);
-        var tokenCounts = PhiVisionInputs.ImageTokenCounts(imageCount);
+        Array pixelData = halfPixels ? Array.ConvertAll(batch.PixelValues, v => (Half)v) : batch.PixelValues;
+        var sizes = batch.ImageSizes;
+        var tokenCounts = batch.TokenCounts;
         var pins = new[] { GCHandle.Alloc(pixelData, GCHandleType.Pinned), GCHandle.Alloc(sizes, GCHandleType.Pinned), GCHandle.Alloc(tokenCounts, GCHandleType.Pinned) };
         try
         {
             const int crop = PhiVisionInputs.CropSize;
-            using var pixelValues = new Tensor(pins[0].AddrOfPinnedObject(), [imageCount, PhiVisionInputs.SlotsPerImage, 3, crop, crop],
+            using var pixelValues = new Tensor(pins[0].AddrOfPinnedObject(), [imageCount, batch.Slots, 3, crop, crop],
                 halfPixels ? ElementType.float16 : ElementType.float32);
             using var imageSizes = new Tensor(pins[1].AddrOfPinnedObject(), [imageCount, 2], ElementType.int64);
             using var imageTokens = new Tensor(pins[2].AddrOfPinnedObject(), [imageCount], ElementType.int64);
@@ -115,6 +148,7 @@ internal sealed class PhiModel : IDisposable
             // The KV cache is allocated to max_length up front (past_present_share_buffer): keep it tight.
             parameters.SetSearchOption("max_length", inputIds.Length + request.MaxNewTokens + 8);
             parameters.SetSearchOption("do_sample", request.Temperature > 0);
+            if (request.RepetitionPenalty > 1) parameters.SetSearchOption("repetition_penalty", request.RepetitionPenalty);
             if (request.Temperature > 0)
             {
                 parameters.SetSearchOption("temperature", request.Temperature);
@@ -127,17 +161,26 @@ internal sealed class PhiModel : IDisposable
             generator.SetModelInput("image_sizes", imageSizes);
             generator.SetModelInput("num_image_tokens", imageTokens);
             generator.AppendTokens(inputIds);
+            var read = DateTime.UtcNow;
 
             using var stream = tokenizer.CreateStream();
             var output = new StringBuilder();
+            var produced = 0;
             for (var i = 0; i < request.MaxNewTokens; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 generator.GenerateNextToken();
                 if (generator.IsDone()) break;
+                produced++;
                 output.Append(stream.Decode(generator.GetNextTokens()[0]));
-                if (output.ToString().Contains("<|end|>", StringComparison.Ordinal)) break;
+                var text = output.ToString();
+                if (text.Contains("<|end|>", StringComparison.Ordinal)) break;
+                // The quick reading's lines are all there: anything more is wasted time.
+                if (request.StopAfterLines > 0 && ReadingParser.CompletedLines(request.ReplyStart + text) >= request.StopAfterLines) break;
+                if (request.StopAfterSentences > 0 && ReadingParser.CompletedSentences(text) >= request.StopAfterSentences) break;
+                if (request.MaxLineWords > 0 && ReadingParser.LastLineWords(text) > request.MaxLineWords) break;
             }
+            log($"Engine: {inputIds.Length} prompt tokens read in {(read - started).TotalSeconds:0.0}s, {produced} written in {(DateTime.UtcNow - read).TotalSeconds:0.0}s");
             return output.ToString();
         }
         finally

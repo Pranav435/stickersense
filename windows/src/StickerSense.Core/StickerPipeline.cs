@@ -183,6 +183,19 @@ public sealed class StickerPipeline
             var ocr = await MergeLaterFramesAsync(frames, firstText, DescriptionContext.File, ct).ConfigureAwait(false);
             var reading = await Describer.ReadAsync(frames, DescriptionContext.File, ocr, Priority, ct).ConfigureAwait(false);
             Library.SetReading(reading, firstText, record.Id);
+            // An animation: remember frames across the loop, so it's recognised whatever a chat shows.
+            if (ImagePrep.FrameCount(path) > 1)
+            {
+                var all = await Task.Run(() => ImagePrep.LoadFrames(path, maxFrames: 16), ct).ConfigureAwait(false);
+                try
+                {
+                    Library.SetFrameFingerprints(all, record.Id);
+                }
+                finally
+                {
+                    foreach (var frame in all) frame.Dispose();
+                }
+            }
             return Library.Record(record.Id) ?? record with { Reading = reading, OcrText = firstText };
         }
         finally

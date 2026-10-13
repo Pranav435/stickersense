@@ -181,6 +181,75 @@ public sealed class DescribeControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task ComingBackToAStickerSpeaksItAgain()
+    {
+        await ui.InvokeAsync(() => controller.FocusChanged(focus.Target));
+        await Eventually.True(() => recorder.Spoken.Count == 1, "the automatic description");
+        // The same element raising focus again, or renamed, isn't leaving it: no repeat.
+        await ui.InvokeAsync(() => controller.FocusChanged(focus.Target));
+        await ui.InvokeAsync(() => controller.FocusChanged(focus.Target with { Name = "Sticker, selected" }));
+        await Task.Delay(200);
+        Assert.Single(recorder.Spoken);
+
+        // Away to a message, then straight back: spoken again, from the library.
+        var message = focus.Target with { Name = "Message from Sam, lunch?, 15:49", IsImage = false, RoleText = "list item", Bounds = new PixelRect(400, 500, 600, 60) };
+        await ui.InvokeAsync(() => controller.FocusChanged(message));
+        await ui.InvokeAsync(() => controller.FocusChanged(focus.Target));
+        await Eventually.True(() => recorder.Spoken.Count == 2, "the description again");
+        Assert.Equal($"say:{Short}", recorder.Spoken[1]);
+        Assert.Equal(1, describer.Reads);
+    }
+
+    [Fact]
+    public async Task OnlyStickerLabelsReachTheLog()
+    {
+        focus.Target = focus.Target with { Name = "Message from Sam, are we still on for lunch?, 15:49", IsImage = false, RoleText = "list item" };
+        await Press();
+        Assert.Contains(recorder.Log, l => l.StartsWith("Shortcut on: (not a sticker label)", StringComparison.Ordinal));
+        Assert.DoesNotContain(recorder.Log, l => l.Contains("lunch", StringComparison.Ordinal));
+        focus.Target = focus.Target with { Name = "Sticker from Sam, 15:50", IsImage = true, RoleText = "image" };
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await Press();
+        Assert.Contains(recorder.Log, l => l.StartsWith("Shortcut on: Sticker from Sam, 15:50", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task YourGifIsRecognisedAsSomethingYouSent()
+    {
+        // Sent from the picker earlier: described from the original file.
+        var gif = Enumerable.Range(0, 4).Select(i => Fixtures.Sticker(Art.Cat, "", artX: 0.02f + i * 0.1f, size: 200)).ToList();
+        var sent = library.Remember(gif, new Fingerprint(gif[0]), new StickerReading(StickerKind.Gif, "Cat slides right", animated: true), "", new StickerSource.Giphy("g3"));
+        library.MarkSent(sent.Id);
+        // In the chat, a paused, smaller preview labelled as your own GIF.
+        capturer.Frames = [Fixtures.OnScreenCapture(gif[0], 0.8)];
+        focus.Target = focus.Target with { Name = "\u200EYour GIF, 14:19, Sent to Family Group, Sent" };
+        await Press();
+        Assert.Equal("say!:GIF: Cat slides right.", recorder.Spoken.Last());
+        Assert.Equal(0, describer.Reads);
+        Assert.Contains("Recognised as something you sent", recorder.Log);
+        foreach (var frame in gif) frame.Dispose();
+    }
+
+    [Fact]
+    public async Task BlankCapturesAreNeverDescribed()
+    {
+        // A blank or protected screen area captures as one flat colour: nothing to describe.
+        capturer.Frames = [new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(200, 200, new SixLabors.ImageSharp.PixelFormats.Rgba32(0, 0, 0))];
+        await Press();
+        Assert.Equal($"say!:{DescribeController.NothingVisibleMessage}", recorder.Spoken.Last());
+        Assert.Equal(0, describer.Reads);
+        Assert.Equal(0, library.Count);
+
+        // Automatically, it stays silent.
+        var spoken = recorder.Spoken.Count;
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await ui.InvokeAsync(() => controller.FocusChanged(focus.Target with { Name = "Sticker from Ana, 15:48" }));
+        await Eventually.True(() => recorder.Log.Count(l => l.StartsWith("Blank capture", StringComparison.Ordinal)) >= 2, "the blank capture to be seen");
+        Assert.Equal(spoken, recorder.Spoken.Count);
+        Assert.Equal(0, describer.Reads);
+    }
+
+    [Fact]
     public async Task AutoModeSkipsPhotosAndText()
     {
         describer.Reading = new StickerReading(StickerKind.Photo, "Beach at sunset");

@@ -11,7 +11,7 @@ using StickerSense.Core;
 namespace StickerSense.App.Diagnostics;
 
 /// <summary>
-/// <c>StickerSense.exe --download-model directml|cpu [--to folder]</c>: downloads the model the
+/// <c>StickerSense.exe --download-model qwen|directml|cpu [--to folder]</c>: downloads the model the
 /// same way Setup does, printing progress and the size and time taken.
 /// </summary>
 internal static class DownloadModelCommand
@@ -26,10 +26,16 @@ internal static class DownloadModelCommand
     {
         var output = ConsoleOutput.Open();
         var i = Array.IndexOf(args, "--download-model");
-        var variant = i + 1 < args.Length && args[i + 1].Equals("cpu", StringComparison.OrdinalIgnoreCase) ? ModelVariant.Cpu : ModelVariant.DirectML;
+        var name = i + 1 < args.Length ? args[i + 1].ToLowerInvariant() : "";
+        var variant = name switch
+        {
+            "cpu" => ModelVariant.Cpu,
+            "directml" => ModelVariant.DirectML,
+            _ => ModelVariant.Qwen3VL2B,
+        };
         var to = Array.IndexOf(args, "--to") is var t and >= 0 && t + 1 < args.Length
             ? args[t + 1]
-            : ModelCatalog.UserModelDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+            : ModelCatalog.UserModelDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), variant);
         output.WriteLine($"Downloading the {variant} model ({ModelCatalog.HuggingFaceFolder(variant)}) to {to}");
         var milestones = new PercentMilestones(5);
         var watch = Stopwatch.StartNew();

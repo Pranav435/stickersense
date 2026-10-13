@@ -49,6 +49,17 @@ public sealed record StickerRecord
     [JsonPropertyName("timesSent")]
     public int TimesSent { get; init; }
 
+    /// <summary>
+    /// Fingerprints of several frames of an animated sticker or GIF, so it's recognised whichever
+    /// frame a chat happens to be showing (e.g. a GIF you sent from the picker, now playing).
+    /// </summary>
+    [JsonPropertyName("frameFingerprints")]
+    public IReadOnlyList<Fingerprint>? FrameFingerprints { get; init; }
+
+    /// <summary>Remembered as an animation (two or more frame fingerprints).</summary>
+    [JsonIgnore]
+    public bool IsAnimation => FrameFingerprints is { Count: > 1 };
+
     [JsonIgnore]
     public bool IsDescribed => Reading is not null;
 

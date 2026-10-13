@@ -102,10 +102,11 @@ public class VisionDescriberTests
         using var image = Fixtures.Sticker(Art.Party, "yay", size: 1024);
         var reading = await model.ReadAsync([image], new DescriptionContext.ScreenItem("Sticker"), "yay 4:05 PM");
         Assert.Equal(new StickerReading(StickerKind.Sticker, "Party popper", "yay", "celebrating"), reading);
-        Assert.Contains("Text that OCR found on it: yay\n", model.Last!.Prompt.ReplaceLineEndings("\n"));
-        Assert.Contains("The screen reader calls this item: Sticker", model.Last.Prompt);
+        Assert.Contains("Words on it (from OCR): yay\n", model.Last!.Prompt.ReplaceLineEndings("\n"));
+        Assert.Contains("The screen reader calls it: Sticker", model.Last.Prompt);
         Assert.Equal(768, model.Last.Images.Single().Width);
-        Assert.Equal(100, model.Last.MaxNewTokens);
+        Assert.Equal(30, model.Last.MaxNewTokens);
+        Assert.Equal(2, model.Last.StopAfterLines);
         Assert.DoesNotContain("MEANING", model.Last.Prompt); // only asked for when the setting is on
     }
 
@@ -120,6 +121,38 @@ public class VisionDescriberTests
         Assert.Contains("These are 4 frames", model.Last.Prompt);
     }
 
+    private sealed class StripModel(string reply) : VisionLanguageDescriber
+    {
+        public VisionRequest? Last;
+        public override EngineStatus Status => new(EngineState.Ready);
+        protected override int SideBySideCell => 336;
+
+        protected override Task<string> GenerateAsync(VisionRequest request, DescribePriority priority, CancellationToken ct)
+        {
+            Last = request;
+            return Task.FromResult(reply);
+        }
+    }
+
+    [Fact]
+    public async Task CanSendFramesSideBySide()
+    {
+        var model = new StripModel(" gif\nSUBJECT: Cat\nMOTION: waves");
+        var frames = Enumerable.Range(0, 3).Select(i => Fixtures.Sticker(Art.Cat, artX: i * 0.05f, size: 128)).ToList();
+        var reading = await model.ReadAsync(frames, DescriptionContext.File);
+        var strip = model.Last!.Images.Single();
+        Assert.Equal((1008, 336), (strip.Width, strip.Height));
+        Assert.Contains("This picture shows 3 frames of one animated sticker or GIF side by side, in time order from left to right.", model.Last.Prompt);
+        Assert.Equal("Cat, waves", reading.Subject);
+        await model.DetailedAsync(frames, DescriptionContext.File);
+        Assert.Single(model.Last.Images);
+        Assert.Contains("describe it in detail as one sticker, including how it moves", model.Last.Prompt);
+        // A still picture is sent as it is.
+        await model.ReadAsync([frames[0]], DescriptionContext.File);
+        Assert.Equal(128, model.Last.Images.Single().Width);
+        foreach (var frame in frames) frame.Dispose();
+    }
+
     [Fact]
     public async Task DetailUsesTheFirstLookAndCleansTheReply()
     {
@@ -127,7 +160,7 @@ public class VisionDescriberTests
         using var image = Fixtures.Sticker(Art.Frog);
         var text = await model.DetailedAsync([image], DescriptionContext.File, "", new StickerReading(StickerKind.Sticker, "Frog"));
         Assert.Equal("A frog in a teacup. It sips.", text);
-        Assert.Contains("A quick first look said: Frog.", model.Last!.Prompt);
+        Assert.Contains("a quick first look said: Frog.", model.Last!.Prompt);
         Assert.Equal(220, model.Last.MaxNewTokens);
     }
 
@@ -208,6 +241,146 @@ public class MotionSamplerTests
         // One quick 150 ms look found motion; one more look 200 ms later: about 0.35-0.7 s in all.
         Assert.Equal([TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(200)], delays);
     }
+
+    [Fact]
+    public async Task GifsAreCheckedForMotionToo()
+    {
+        // A chat shows a GIF as a still preview until it's opened: no motion, one frame.
+        var still = new FakeCapturer();
+        using var first = await still.CaptureAsync(default);
+        var frames = await MotionSampler.CaptureMotionAsync(still, default, first, alreadyKnownAnimated: true, NoDelay);
+        Assert.Single(frames);
+
+        // Playing: the extra looks are wider apart, so the model sees the scene change.
+        var playing = new FakeCapturer
+        {
+            Frames = Enumerable.Range(0, 6).Select(i => Fixtures.Sticker(Art.Wave, artX: i * 0.06f, size: 160)).ToList(),
+        };
+        var start = await playing.CaptureAsync(default);
+        var delays = new List<TimeSpan>();
+        frames = await MotionSampler.CaptureMotionAsync(playing, default, start, alreadyKnownAnimated: true, (d, _) =>
+        {
+            delays.Add(d);
+            return Task.CompletedTask;
+        });
+        Assert.Equal(3, frames.Count);
+        Assert.Equal([TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(550)], delays);
+    }
+}
+
+public class GifTests
+{
+    [Fact]
+    public void OwnGifLabelsCount()
+    {
+        Assert.Equal(StickerVerdict.Gif, LabelClassifier.Classify("\u200EYour GIF, 14:19, \u200ESent to Family Group, \u200ESent", 517, 515, isImageElement: false));
+        Assert.Equal(StickerVerdict.Sticker, LabelClassifier.Classify("Your sticker, 14:19, Sent to Family Group, Read", 517, 515, isImageElement: false));
+        Assert.Equal(StickerVerdict.NotSticker, LabelClassifier.Classify("Message from Ana, can you send me your sticker, 15:49", 517, 515, isImageElement: false));
+        Assert.True(DescribeController.IsOwnItem("\u200EYour GIF, 14:19, Sent"));
+        Assert.False(DescribeController.IsOwnItem("GIF from Ana, 14:19"));
+    }
+
+    [Fact]
+    public void StrayLettersAreNotStickerText()
+    {
+        OcrLine[] lines = [new("V", new NormalizedBox(0, 0, 0.1, 0.1)), new("OK!", new NormalizedBox(0, 0.5, 0.3, 0.1))];
+        Assert.Equal("OK!", StickerText.TextOf(lines, null));
+    }
+
+    [Fact]
+    public void SentGifIsRecognisedFromAnyFrames()
+    {
+        using var library = new StickerLibrary(Fixtures.TempDirectory());
+        // A "GIF" of 6 frames, as sent from the picker.
+        var gif = Enumerable.Range(0, 6).Select(i => Fixtures.Sticker(i < 3 ? Art.Cat : Art.HeartEyes, "hi!", artX: 0.02f + i * 0.08f)).ToList();
+        var record = library.Remember(gif, new Fingerprint(gif[0]), new StickerReading(StickerKind.Gif, "Cat slides right", animated: true), "hi!", new StickerSource.Giphy("g1"));
+        Assert.Equal(6, record.FrameFingerprints?.Count);
+        // Later, the chat shows it smaller, starting mid-loop.
+        var seen = new[] { gif[2], gif[3], gif[5] }.Select(f => { using var c = Fixtures.OnScreenCapture(f, 0.5); return new Fingerprint(c); }).ToList();
+        Assert.Equal(record.Id, library.MatchAnimated(seen)?.Id);
+        // A different animation doesn't match.
+        var other = new[] { Art.Dog, Art.Fox, Art.Bear }.Select(a => { using var s = Fixtures.Sticker(a); return new Fingerprint(s); }).ToList();
+        Assert.Null(library.MatchAnimated(other));
+        foreach (var frame in gif) frame.Dispose();
+    }
+
+    [Fact]
+    public void FrameFingerprintsRoundTripAndStayOptional()
+    {
+        var dir = Fixtures.TempDirectory();
+        var gif = Enumerable.Range(0, 4).Select(i => Fixtures.Sticker(Art.Cat, "", artX: 0.02f + i * 0.1f)).ToList();
+        using var still = Fixtures.Sticker(Art.Dog, "idk");
+        using (var library = new StickerLibrary(dir))
+        {
+            library.Remember(gif, new Fingerprint(gif[0]), new StickerReading(StickerKind.Gif, "Cat", animated: true), "", new StickerSource.Received("whatsapp"));
+            library.Remember([still], new Fingerprint(still), new StickerReading(StickerKind.Sticker, "Dog"), "idk", new StickerSource.Received("whatsapp"));
+        }
+        var json = File.ReadAllText(Path.Combine(dir, "library.json"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "\"frameFingerprints\""));
+        using var reloaded = new StickerLibrary(dir);
+        Assert.Equal(4, reloaded.History().Single(r => r.Reading!.Subject == "Cat").FrameFingerprints?.Count);
+        Assert.Null(reloaded.History().Single(r => r.Reading!.Subject == "Dog").FrameFingerprints);
+        foreach (var frame in gif) frame.Dispose();
+    }
+}
+
+public class RecentlySentTests
+{
+    [Fact]
+    public void StillPreviewOfASentGifIsRecognised()
+    {
+        using var library = new StickerLibrary(Fixtures.TempDirectory());
+        var gif = Enumerable.Range(0, 4).Select(i => Fixtures.Sticker(Art.Cat, "hi!", artX: 0.02f + i * 0.1f)).ToList();
+        var record = library.Remember(gif, new Fingerprint(gif[0]), new StickerReading(StickerKind.Gif, "Cat slides right", animated: true), "", new StickerSource.Giphy("g2"));
+        // Not sent yet: no match.
+        using var capture = Fixtures.OnScreenCapture(gif[0], 0.6);
+        var preview = new Fingerprint(capture);
+        Assert.Null(library.MatchRecentlySent(preview));
+        library.MarkSent(record.Id);
+        Assert.Equal(record.Id, library.MatchRecentlySent(preview)?.Id);
+        // Something unrelated isn't mistaken for it.
+        using var cake = Fixtures.Sticker(Art.Cake, "yay");
+        Assert.Null(library.MatchRecentlySent(new Fingerprint(cake)));
+        foreach (var frame in gif) frame.Dispose();
+    }
+}
+
+public class GifConsistencyTests
+{
+    private static List<SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>> Gif() =>
+        Enumerable.Range(0, 4).Select(i => Fixtures.Sticker(Art.Fox, "", artX: 0.02f + i * 0.1f)).ToList();
+
+    [Fact]
+    public void PausedPreviewCopyIsFoldedIntoTheAnimatedRecord()
+    {
+        using var library = new StickerLibrary(Fixtures.TempDirectory());
+        var gif = Gif();
+        // First seen paused: a still description of frame 0.
+        library.Remember([gif[0]], new Fingerprint(gif[0]), new StickerReading(StickerKind.Gif, "Glowing blob"), "", new StickerSource.Received("w"));
+        // Later seen playing: described with motion.
+        library.Remember([gif[1], gif[2], gif[3]], new Fingerprint(gif[1]), new StickerReading(StickerKind.Gif, "Fox jumps", animated: true), "",
+            new StickerSource.Received("w"), replaceReading: true);
+        // Whatever frame is on screen next time, the answer is the animated one.
+        foreach (var frame in gif) Assert.Equal("Fox jumps", library.Match(new Fingerprint(frame), "")?.Reading?.Subject);
+        Assert.DoesNotContain(library.History(), r => r.Reading?.Subject == "Glowing blob");
+        foreach (var frame in gif) frame.Dispose();
+    }
+
+    [Fact]
+    public void PausedPreviewSeenLaterIsRecognised()
+    {
+        using var library = new StickerLibrary(Fixtures.TempDirectory());
+        var gif = Gif();
+        library.Remember([gif[1], gif[2], gif[3]], new Fingerprint(gif[1]), new StickerReading(StickerKind.Gif, "Fox jumps", animated: true), "",
+            new StickerSource.Received("w"));
+        Assert.Equal("Fox jumps", library.MatchAnimationFrame(new Fingerprint(gif[0]))?.Reading?.Subject);
+        // Remembered now: a plain lookup finds it too.
+        Assert.Equal("Fox jumps", library.Match(new Fingerprint(gif[0]), "")?.Reading?.Subject);
+        // A different still isn't mistaken for it.
+        using var cake = Fixtures.Sticker(Art.Cake, "yay");
+        Assert.Null(library.MatchAnimationFrame(new Fingerprint(cake)));
+        foreach (var frame in gif) frame.Dispose();
+    }
 }
 
 public class SupportTests
@@ -256,11 +429,17 @@ public class SupportTests
         var app = Fixtures.TempDirectory();
         var local = Fixtures.TempDirectory();
         var candidates = ModelCatalog.CandidateDirectories(app, local);
-        Assert.Equal(Path.Combine(app, "models", "phi-3.5-vision"), candidates[0]);
-        Assert.Equal(Path.Combine(local, "StickerSense", "models", "phi-3.5-vision"), candidates[1]);
+        // The fast processor model first, then Phi-3.5-vision; each in the release, then the downloads.
+        Assert.Equal(
+        [
+            Path.Combine(app, "models", "qwen3-vl-2b"),
+            Path.Combine(local, "StickerSense", "models", "qwen3-vl-2b"),
+            Path.Combine(app, "models", "phi-3.5-vision"),
+            Path.Combine(local, "StickerSense", "models", "phi-3.5-vision"),
+        ], candidates);
         Assert.Null(ModelCatalog.FindInstalled(candidates));
 
-        var user = candidates[1];
+        var user = candidates[3];
         Directory.CreateDirectory(user);
         File.WriteAllText(Path.Combine(user, "phi-3.5-v-instruct-text.onnx"), "x");
         Assert.True(ModelCatalog.IsPartial(user));
@@ -273,6 +452,26 @@ public class SupportTests
         Assert.Equal(ModelVariant.Cpu, ModelCatalog.DetectVariant(user));
         Assert.Equal("cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4", ModelCatalog.HuggingFaceFolder(ModelVariant.Cpu));
         Assert.Equal("gpu/gpu-int4-rtn-block-32", ModelCatalog.HuggingFaceFolder(ModelVariant.DirectML));
+
+        // Qwen3-VL 2B, once downloaded, is found first; a preference for Phi puts Phi first.
+        var qwen = candidates[1];
+        Directory.CreateDirectory(qwen);
+        File.WriteAllText(Path.Combine(qwen, "genai_config.json"), """
+            {"model":{"type":"qwen3_vl","decoder":{"filename":"text.onnx"},"vision":{"filename":"vision.onnx"},"embedding":{"filename":"embedding.onnx"}}}
+            """);
+        foreach (var file in new[] { "text.onnx", "vision.onnx", "embedding.onnx" }) File.WriteAllText(Path.Combine(qwen, file), "x");
+        File.WriteAllText(Path.Combine(qwen, ".stickersense-downloading"), "Qwen3VL2B");
+        Assert.True(ModelCatalog.IsPartial(qwen)); // no tokenizer yet
+        Assert.Null(ModelCatalog.FindInstalled(candidates.Take(2)));
+        File.WriteAllText(Path.Combine(qwen, "tokenizer.json"), "{}");
+        File.Delete(Path.Combine(qwen, ".stickersense-downloading"));
+        Assert.Equal(qwen, ModelCatalog.FindInstalled(candidates));
+        Assert.Equal("qwen3_vl", ModelCatalog.ModelType(qwen));
+        Assert.Equal(ModelVariant.Qwen3VL2B, ModelCatalog.DetectVariant(qwen));
+        Assert.Equal(user, ModelCatalog.FindInstalled(ModelCatalog.CandidateDirectories(app, local, ModelVariant.Cpu)));
+        Assert.Equal("onnx-community/Qwen3-VL-2B-Instruct-ONNX", ModelCatalog.Repository(ModelVariant.Qwen3VL2B));
+        Assert.Equal("onnxruntime/cpu_and_mobile/cpu-int4-rtn-block-32", ModelCatalog.HuggingFaceFolder(ModelVariant.Qwen3VL2B));
+        Assert.Equal(Path.Combine(local, "StickerSense", "models", "qwen3-vl-2b"), ModelCatalog.UserModelDirectory(local, ModelVariant.Qwen3VL2B));
     }
 
     [Fact]

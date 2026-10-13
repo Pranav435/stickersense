@@ -81,6 +81,44 @@ public static class ImagePrep
         return Resized(image, w, h, KnownResamplers.Bicubic);
     }
 
+    /// <summary>
+    /// True for a capture with nothing in it — one flat colour. That happens when the screen
+    /// region is blank or protected; describing it would only say "black rectangle".
+    /// </summary>
+    public static bool IsBlank(Image<Rgba32> image) => new Thumbprint(image, side: 24).IsUniform;
+
+    /// <summary>
+    /// The frames in one row, each scaled into a white square of <paramref name="cell"/> pixels,
+    /// first frame on the left.
+    /// </summary>
+    public static Image<Rgba32> SideBySide(IReadOnlyList<Image<Rgba32>> frames, int cell)
+    {
+        var strip = new Image<Rgba32>(cell * frames.Count, cell, new Rgba32(255, 255, 255));
+        for (var i = 0; i < frames.Count; i++)
+        {
+            using var square = Fit(frames[i], cell, cell);
+            var left = i * cell;
+            strip.Mutate(c => c.DrawImage(square, new Point(left, 0), 1f));
+        }
+        return strip;
+    }
+
+    /// <summary>
+    /// The image scaled to fit inside <paramref name="width"/>×<paramref name="height"/>, centred on
+    /// white, with transparency flattened onto white.
+    /// </summary>
+    public static Image<Rgba32> Fit(Image<Rgba32> image, int width, int height)
+    {
+        var scale = Math.Min((double)width / image.Width, (double)height / image.Height);
+        var w = Math.Clamp((int)Math.Round(image.Width * scale), 1, width);
+        var h = Math.Clamp((int)Math.Round(image.Height * scale), 1, height);
+        using var resized = image.Frames.CloneFrame(0);
+        resized.Mutate(c => c.Resize(w, h, KnownResamplers.Bicubic));
+        var canvas = new Image<Rgba32>(width, height, new Rgba32(255, 255, 255));
+        canvas.Mutate(c => c.DrawImage(resized, new Point((width - w) / 2, (height - h) / 2), 1f));
+        return canvas;
+    }
+
     /// <summary>Everything the describer needs: flattened, reasonably sized.</summary>
     public static Image<Rgba32> PrepareForModel(Image<Rgba32> image, int maxDimension = 768)
     {

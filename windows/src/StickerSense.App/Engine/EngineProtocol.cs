@@ -9,6 +9,25 @@ namespace StickerSense.App.Engine;
 /// Messages between StickerSense and its engine process, over the engine's standard input and
 /// output: a type byte, then fields written with <see cref="BinaryWriter"/>.
 /// </summary>
+/// <summary>How the engine should load the model.</summary>
+/// <param name="WarmUp">Run one tiny generation after loading (compiles graphics card kernels; little use on a processor).</param>
+/// <param name="Threads">Processor threads for the model, or 0 for ONNX Runtime's default (one per physical core).</param>
+internal sealed record EngineLoadOptions(string Directory, bool TryGraphicsCard, string WarmUpInstructions, bool WarmUp = true, int Threads = 0)
+{
+    public void Write(BinaryWriter w)
+    {
+        w.Write(EngineProtocol.Load);
+        w.Write(Directory);
+        w.Write(TryGraphicsCard);
+        w.Write(WarmUpInstructions);
+        w.Write(WarmUp);
+        w.Write(Threads);
+    }
+
+    /// <summary>Reads options written by <see cref="Write"/> (after the type byte).</summary>
+    public static EngineLoadOptions Read(BinaryReader r) => new(r.ReadString(), r.ReadBoolean(), r.ReadString(), r.ReadBoolean(), r.ReadInt32());
+}
+
 internal static class EngineProtocol
 {
     // App → engine
@@ -34,6 +53,10 @@ internal static class EngineProtocol
         w.Write(request.ReplyStart);
         w.Write(request.MaxNewTokens);
         w.Write(request.Temperature);
+        w.Write(request.StopAfterLines);
+        w.Write(request.RepetitionPenalty);
+        w.Write(request.StopAfterSentences);
+        w.Write(request.MaxLineWords);
         w.Write(request.Images.Count);
         foreach (var image in request.Images)
         {
@@ -55,6 +78,10 @@ internal static class EngineProtocol
         var replyStart = r.ReadString();
         var maxNewTokens = r.ReadInt32();
         var temperature = r.ReadDouble();
+        var stopAfterLines = r.ReadInt32();
+        var repetitionPenalty = r.ReadDouble();
+        var stopAfterSentences = r.ReadInt32();
+        var maxLineWords = r.ReadInt32();
         var count = r.ReadInt32();
         var images = new List<Image<Rgba32>>(count);
         for (var i = 0; i < count; i++)
@@ -64,6 +91,6 @@ internal static class EngineProtocol
             var bytes = r.ReadBytes(r.ReadInt32());
             images.Add(Image.LoadPixelData<Rgba32>(bytes, width, height));
         }
-        return (id, new VisionRequest(instructions, prompt, images, maxNewTokens, temperature, replyStart));
+        return (id, new VisionRequest(instructions, prompt, images, maxNewTokens, temperature, replyStart, stopAfterLines, repetitionPenalty, stopAfterSentences, maxLineWords));
     }
 }

@@ -67,7 +67,52 @@ public class LabelTests
         Assert.True(LabelClassifier.IsAmbiguous("image"));
         Assert.True(LabelClassifier.IsAmbiguous("Picture, group"));
         Assert.False(LabelClassifier.IsAmbiguous("Message from Sam, lunch?"));
-        Assert.False(LabelClassifier.IsAmbiguous("Sticker"));
+        // "Sticker" on something that isn't an image (on a web page): worth looking inside it for one.
+        Assert.True(LabelClassifier.IsAmbiguous("Sticker"));
+        Assert.False(LabelClassifier.IsAmbiguous("Sticker pack from Ana Example sent yesterday afternoon"));
+    }
+
+    [Fact]
+    public void TextAboutStickersIsNotASticker()
+    {
+        // Real lines a screen reader read from this project's README on GitHub.
+        (string Label, double Width, double Height)[] readme =
+        [
+            ("Someone sends you a sticker. Your screen reader, ever the diplomat, says \"sticker\". Thanks.", 700, 90),
+            ("StickerSense describes stickers, GIFs and pictures out loud, in any app, for people who use a screen reader.", 700, 60),
+            ("A sticker it hasn't seen before: about 1.2 seconds.", 500, 24),
+            ("A sticker, $3 link", 110, 22),
+            ("A GIF, $5 link", 90, 22),
+            ("Nobody has sent a sticker yet, so the first name here could be yours.", 300, 120),
+        ];
+        foreach (var (label, width, height) in readme)
+        {
+            Assert.Equal(StickerVerdict.NotSticker, LabelClassifier.Classify(label, width, height, isImageElement: false, inBrowser: true));
+            Assert.Equal(StickerVerdict.NotSticker, LabelClassifier.Classify(label, width, height, isImageElement: false, inBrowser: false));
+        }
+    }
+
+    [Fact]
+    public void WebStickersNeedImageSemantics()
+    {
+        Assert.Equal(StickerVerdict.Sticker, LabelClassifier.Classify("Sticker, image", 160, 160, isImageElement: false, inBrowser: true));
+        Assert.Equal(StickerVerdict.Gif, LabelClassifier.Classify("GIF", 160, 160, isImageElement: true, inBrowser: true));
+        Assert.Equal(StickerVerdict.NotSticker, LabelClassifier.Classify("Sticker", 160, 160, isImageElement: false, inBrowser: true));
+        // Process names decide what's a browser.
+        var web = new FocusTarget { Name = "Sticker", Bounds = new PixelRect(0, 0, 160, 160), AppName = "msedge" };
+        Assert.Equal(StickerVerdict.NotSticker, StickerDetector.Verdict(web));
+        Assert.Equal(StickerVerdict.Sticker, StickerDetector.Verdict(web with { AppName = "whatsapp" }));
+        Assert.Equal(StickerVerdict.Sticker, StickerDetector.Verdict(web with { IsImage = true }));
+    }
+
+    [Fact]
+    public void TextShapedRegionsAreNeverStickers()
+    {
+        Assert.False(LabelClassifier.IsStickerShaped(700, 60));
+        Assert.False(LabelClassifier.IsStickerShaped(110, 22));
+        Assert.True(LabelClassifier.IsStickerShaped(138, 208));
+        Assert.True(LabelClassifier.IsStickerShaped(300, 170));
+        Assert.Equal(StickerVerdict.NotSticker, LabelClassifier.Classify("Sticker", 700, 60, isImageElement: true));
     }
 
     [Fact]
@@ -237,5 +282,60 @@ public class BackgroundIndexerTests
         machine.Idle(TimeSpan.FromMinutes(5));
         await run.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.NotNull(library.Record(record.Id)!.Reading);
+    }
+}
+
+/// <summary>Mirrors the Mac's BlankCaptureTests.</summary>
+public class BlankCaptureTests
+{
+    [Fact]
+    public void FlatImagesAreBlankAndNeverCached()
+    {
+        using var black = new Image<Rgba32>(300, 120, new Rgba32(0, 0, 0));
+        Assert.True(ImagePrep.IsBlank(black));
+        using var sticker = Fixtures.Sticker(Art.Dog, caption: "idk");
+        Assert.False(ImagePrep.IsBlank(sticker));
+
+        var dir = Fixtures.TempDirectory();
+        using (var library = new StickerLibrary(dir))
+        {
+            var blank = new Fingerprint(black);
+            library.Remember([black], blank, new StickerReading(StickerKind.Illustration, "Black rectangle"), "", new StickerSource.Received("x"));
+            Assert.Equal(0, library.Count);
+            Assert.Null(library.Match(blank, ""));
+        }
+    }
+
+    [Fact]
+    public void BlankRecordsCachedByOlderVersionsAreDropped()
+    {
+        var dir = Fixtures.TempDirectory();
+        using var black = new Image<Rgba32>(200, 200, new Rgba32(0, 0, 0));
+        using var sticker = Fixtures.Sticker(Art.Dog, caption: "idk");
+        var blankRecord = new StickerRecord
+        {
+            Id = Guid.NewGuid(),
+            Fingerprint = new Fingerprint(black),
+            Reading = new StickerReading(StickerKind.Illustration, "Black rectangle"),
+            OcrText = "",
+            Source = new StickerSource.Received("whatsapp"),
+            AddedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow,
+            TimesSeen = 3,
+        };
+        using (var library = new StickerLibrary(dir))
+        {
+            library.Remember([sticker], new Fingerprint(sticker), new StickerReading(StickerKind.Sticker, "Dog shrugging"), "idk", new StickerSource.Received("whatsapp"));
+        }
+        // An older version wrote a blank record into the file.
+        var path = Path.Combine(dir, "library.json");
+        var records = System.Text.Json.JsonSerializer.Deserialize<List<StickerRecord>>(File.ReadAllBytes(path), StickerLibrary.JsonOptions)!;
+        records.Add(blankRecord);
+        File.WriteAllBytes(path, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(records, StickerLibrary.JsonOptions));
+        using (var reloaded = new StickerLibrary(dir))
+        {
+            Assert.Equal(1, reloaded.Count);
+            Assert.Null(reloaded.Record(blankRecord.Id));
+        }
     }
 }

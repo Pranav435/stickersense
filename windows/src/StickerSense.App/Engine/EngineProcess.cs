@@ -63,7 +63,7 @@ internal sealed class EngineProcess : IDisposable
     }
 
     /// <summary>Starts an engine and loads the model in it (seconds; the engine warms the model up).</summary>
-    public static async Task<EngineProcess> StartAsync(string directory, bool tryGraphicsCard, string warmUpInstructions, Action<string> log)
+    public static async Task<EngineProcess> StartAsync(EngineLoadOptions options, Action<string> log)
     {
         var exe = Environment.ProcessPath ?? throw new InvalidOperationException("StickerSense can't find its own program file.");
         var start = new ProcessStartInfo(exe, "--engine")
@@ -78,7 +78,7 @@ internal sealed class EngineProcess : IDisposable
         var engine = new EngineProcess(process, log);
         try
         {
-            await engine.LoadAsync(directory, tryGraphicsCard, warmUpInstructions).ConfigureAwait(false);
+            await engine.LoadAsync(options).ConfigureAwait(false);
             return engine;
         }
         catch
@@ -88,16 +88,10 @@ internal sealed class EngineProcess : IDisposable
         }
     }
 
-    private async Task LoadAsync(string directory, bool tryGraphicsCard, string warmUpInstructions)
+    private async Task LoadAsync(EngineLoadOptions options)
     {
         var done = loading = new TaskCompletionSource<(bool, string, bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Send(w =>
-        {
-            w.Write(EngineProtocol.Load);
-            w.Write(directory);
-            w.Write(tryGraphicsCard);
-            w.Write(warmUpInstructions);
-        });
+        Send(options.Write);
         var (ok, runningOn, usesGraphicsCard, error) = await done.Task.ConfigureAwait(false);
         if (!ok) throw new InvalidOperationException(FirstLine(error));
         RunningOn = runningOn;

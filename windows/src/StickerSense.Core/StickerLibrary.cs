@@ -66,23 +66,148 @@ public sealed class StickerLibrary : IDisposable
 
     private StickerRecord? MatchLocked(Fingerprint fingerprint, string ocrText)
     {
+        // Every blank capture looks alike: never answer one from the cache.
+        if (fingerprint.Thumb.IsUniform) return null;
         var ocr = StickerText.Normalized(ocrText);
         StickerRecord? best = null;
         var bestDistance = int.MaxValue;
+        var bestAnimated = false;
         foreach (var record in records.Values)
         {
-            if (!record.IsDescribed || !record.Fingerprint.IsSameSticker(fingerprint)) continue;
-            var other = StickerText.Normalized(record.OcrText);
-            if ((ocr.Length > 0 || other.Length > 0) && !TextsAgree(ocr, other)) continue;
-            var distance = record.Fingerprint.HammingDistance(fingerprint);
-            if (distance < bestDistance)
+            if (!record.IsDescribed) continue;
+            // The main fingerprint, or — for an animation — whichever remembered frame is showing.
+            int distance;
+            if (record.Fingerprint.IsSameSticker(fingerprint)) distance = record.Fingerprint.HammingDistance(fingerprint);
+            else if (record.FrameFingerprints?.FirstOrDefault(f => f.IsSameSticker(fingerprint)) is { } frame) distance = frame.HammingDistance(fingerprint);
+            else continue;
+            var animated = record.IsAnimation;
+            // Captions of a still must agree; an animation's text changes from frame to frame.
+            if (!animated)
+            {
+                var other = StickerText.Normalized(record.OcrText);
+                if ((ocr.Length > 0 || other.Length > 0) && !TextsAgree(ocr, other)) continue;
+            }
+            // One GIF, one description: prefer the reading made from its motion.
+            if (best is null || (animated && !bestAnimated) || (animated == bestAnimated && distance < bestDistance))
             {
                 best = record;
                 bestDistance = distance;
+                bestAnimated = animated;
             }
         }
         return best;
     }
+
+    /// <summary>
+    /// A single frame of a GIF StickerSense has already described with its motion — e.g. the
+    /// paused preview a chat shows. Remembers the frame so the next lookup is a plain cache hit.
+    /// </summary>
+    public StickerRecord? MatchAnimationFrame(Fingerprint fingerprint)
+    {
+        if (fingerprint.Thumb.IsUniform) return null;
+        StickerRecord? updated;
+        lock (gate)
+        {
+            StickerRecord? best = null;
+            var bestDistance = int.MaxValue;
+            foreach (var record in records.Values)
+            {
+                if (!record.IsDescribed || !(record.Reading!.Kind == StickerKind.Gif || record.Reading.Animated) || !record.IsAnimation) continue;
+                foreach (var frame in record.FrameFingerprints!)
+                {
+                    if (!IsLooseFrameMatch(frame, fingerprint)) continue;
+                    var distance = frame.HammingDistance(fingerprint);
+                    if (distance < bestDistance)
+                    {
+                        best = record;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            if (best is null) return null;
+            updated = best with
+            {
+                FrameFingerprints = best.FrameFingerprints!.Append(fingerprint).TakeLast(MaxFrameFingerprints).ToList(),
+                LastSeenAt = clock.GetUtcNow(),
+                TimesSeen = best.TimesSeen + 1,
+            };
+            records[updated.Id] = updated;
+        }
+        ScheduleSave();
+        return updated;
+    }
+
+    /// <summary>
+    /// Recognises something the user sent from the picker recently ("Your GIF" in a chat), from a
+    /// single on-screen frame. Chats re-encode GIFs and overlay badges, so the comparison is looser
+    /// than <see cref="Match"/> — safe only because the candidates are the handful of items sent in the last day.
+    /// </summary>
+    public StickerRecord? MatchRecentlySent(Fingerprint fingerprint, TimeSpan? within = null)
+    {
+        if (fingerprint.Thumb.IsUniform) return null;
+        var cutoff = clock.GetUtcNow() - (within ?? TimeSpan.FromDays(1));
+        lock (gate)
+        {
+            StickerRecord? best = null;
+            var bestDistance = int.MaxValue;
+            foreach (var record in records.Values)
+            {
+                if (!record.IsDescribed || record.TimesSent <= 0 || record.LastSeenAt <= cutoff) continue;
+                foreach (var stored in record.FrameFingerprints is { } frames ? frames.Prepend(record.Fingerprint) : [record.Fingerprint])
+                {
+                    var distance = stored.HammingDistance(fingerprint);
+                    if (distance <= 22 && stored.Thumb.Difference(fingerprint.Thumb) <= 0.05 && distance < bestDistance)
+                    {
+                        best = record;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            return best;
+        }
+    }
+
+    /// <summary>
+    /// Recognises an animated sticker or GIF from several captured frames. Each captured frame may
+    /// land anywhere in the loop, and a chat may re-encode it, so single frames are compared more
+    /// loosely than stills — but at least two captured frames must each match a stored frame.
+    /// </summary>
+    public StickerRecord? MatchAnimated(IReadOnlyList<Fingerprint> captured)
+    {
+        var usable = captured.Where(f => !f.Thumb.IsUniform).ToList();
+        if (usable.Count < 2) return null;
+        lock (gate)
+        {
+            StickerRecord? best = null;
+            var bestHits = 0;
+            foreach (var record in records.Values)
+            {
+                if (!record.IsDescribed || !record.IsAnimation) continue;
+                var stored = record.FrameFingerprints!;
+                var hits = usable.Count(frame => stored.Any(s => IsLooseFrameMatch(s, frame)));
+                if (hits >= 2 && hits > bestHits)
+                {
+                    best = record;
+                    bestHits = hits;
+                }
+            }
+            return best;
+        }
+    }
+
+    /// <summary>At most this many frame fingerprints per record.</summary>
+    public const int MaxFrameFingerprints = 24;
+
+    /// <summary>
+    /// Frames of one animation: compared more loosely than stills, since a chat may re-encode it
+    /// and show any point in the loop.
+    /// </summary>
+    internal static bool IsLooseFrameMatch(Fingerprint a, Fingerprint b) =>
+        a.HammingDistance(b) <= 14 && a.Thumb.Difference(b.Thumb) <= 0.02;
+
+    /// <summary>Fingerprints of up to 16 frames spread across an animation.</summary>
+    public static List<Fingerprint> FrameFingerprintsOf(IReadOnlyList<Image<Rgba32>> frames) =>
+        ImagePrep.SampleIndices(frames.Count, 16).Select(i => new Fingerprint(frames[i])).ToList();
 
     internal static bool TextsAgree(string a, string b)
     {
@@ -126,6 +251,27 @@ public sealed class StickerLibrary : IDisposable
         string? remoteUrl = null,
         bool replaceReading = false)
     {
+        // Never cache a blank capture: every blank image looks alike and would "match" forever.
+        if (fingerprint.Thumb.IsUniform)
+        {
+            var now0 = clock.GetUtcNow();
+            return new StickerRecord
+            {
+                Id = Guid.NewGuid(),
+                Fingerprint = fingerprint,
+                Reading = reading,
+                OcrText = ocrText,
+                Source = source,
+                RemoteUrl = remoteUrl,
+                AddedAt = now0,
+                LastSeenAt = now0,
+                TimesSeen = 1,
+                TimesSent = 0,
+            };
+        }
+
+        var frameFingerprints = frames.Count > 1 ? FrameFingerprintsOf(frames) : null;
+
         // Find the record first, encode the image without holding the lock, then store.
         StickerRecord? existing;
         lock (gate) existing = FindExistingLocked(fingerprint, ocrText);
@@ -137,6 +283,7 @@ public sealed class StickerLibrary : IDisposable
         }
 
         StickerRecord stored;
+        var absorbedFiles = new List<string>();
         var now = clock.GetUtcNow();
         lock (gate)
         {
@@ -149,6 +296,9 @@ public sealed class StickerLibrary : IDisposable
                     LastSeenAt = now,
                     TimesSeen = existing.TimesSeen + 1,
                     ImageFile = existing.ImageFile ?? (existing.Id == id ? savedImage : null),
+                    FrameFingerprints = frameFingerprints is not null && (existing.FrameFingerprints?.Count ?? 0) < frames.Count
+                        ? frameFingerprints
+                        : existing.FrameFingerprints,
                 };
             }
             else
@@ -166,13 +316,47 @@ public sealed class StickerLibrary : IDisposable
                     LastSeenAt = now,
                     TimesSeen = 1,
                     TimesSent = 0,
+                    FrameFingerprints = frameFingerprints,
                 };
             }
             records[stored.Id] = stored;
+            if (existing is null && frameFingerprints is not null) stored = AbsorbStillCopiesLocked(stored, absorbedFiles);
         }
+        foreach (var file in absorbedFiles) TryDelete(Path.Combine(ImagesDirectory, file));
         if (savedImage is not null && stored.ImageFile != savedImage) TryDelete(Path.Combine(ImagesDirectory, savedImage));
         ScheduleSave();
         return stored;
+    }
+
+    /// <summary>
+    /// An animation first seen paused (a still preview) gets a still-frame description. Once it's
+    /// described with its motion, fold those stale GIF copies into the animated record, and keep
+    /// their preview frame so the paused preview is recognised directly next time.
+    /// </summary>
+    private StickerRecord AbsorbStillCopiesLocked(StickerRecord record, List<string> filesToDelete)
+    {
+        var frames = record.FrameFingerprints!.ToList();
+        var timesSeen = record.TimesSeen;
+        foreach (var other in records.Values.ToList())
+        {
+            if (other.Id == record.Id || (other.FrameFingerprints?.Count ?? 0) > 1 || other.Reading?.Kind != StickerKind.Gif) continue;
+            if (other.Source is not StickerSource.Received || !frames.Any(f => IsLooseFrameMatch(f, other.Fingerprint))) continue;
+            timesSeen += other.TimesSeen;
+            frames.Add(other.Fingerprint);
+            records.Remove(other.Id);
+            if (other.ImageFile is { } file) filesToDelete.Add(file);
+        }
+        var folded = record with { FrameFingerprints = frames.TakeLast(MaxFrameFingerprints).ToList(), TimesSeen = timesSeen };
+        records[folded.Id] = folded;
+        return folded;
+    }
+
+    /// <summary>Remembers several frames of an animation (e.g. after describing an imported file).</summary>
+    public void SetFrameFingerprints(IReadOnlyList<Image<Rgba32>> frames, Guid id)
+    {
+        if (frames.Count < 2) return;
+        var fingerprints = FrameFingerprintsOf(frames);
+        Update(id, r => r with { FrameFingerprints = fingerprints });
     }
 
     private StickerRecord? FindExistingLocked(Fingerprint fingerprint, string ocrText) =>
@@ -419,7 +603,8 @@ public sealed class StickerLibrary : IDisposable
         try
         {
             var decoded = JsonSerializer.Deserialize<List<StickerRecord>>(File.ReadAllBytes(FilePath), JsonOptions) ?? [];
-            foreach (var record in decoded) records.TryAdd(record.Id, record);
+            // Drop descriptions of blank captures ("Black rectangle") that older versions cached.
+            foreach (var record in decoded.Where(r => !r.Fingerprint.Thumb.IsUniform)) records.TryAdd(record.Id, record);
         }
         catch (Exception e) when (e is JsonException or NotSupportedException or IOException or FormatException or ArgumentException)
         {

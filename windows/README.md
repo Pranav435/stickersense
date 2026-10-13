@@ -10,11 +10,12 @@ This is the Windows version of the Mac app in this repository and behaves the sa
 
 - Press Control Alt Shift D on a sticker to hear a short description, such as "Shiba dog shrugging, idk".
 - Press it again within 3 seconds for a detailed description. A third press repeats the detail.
-- When focus rests on a sticker or GIF in a chat app or browser, StickerSense describes it automatically. Photos and text messages are left alone.
+- When focus rests on a sticker or GIF in a chat app, or on a sticker picture in a browser, StickerSense describes it automatically. Photos, text messages, and text that only talks about stickers are left alone.
 - Animated stickers and GIFs are described with their motion, such as "Cartoon cat waves, then winks".
 - Words written on a sticker are read exactly, using Windows text recognition. StickerSense only says a sticker has words when text recognition actually found them, so it doesn't invent any.
 - In group chats, the sender's name and the time around a sticker are ignored, so the same sticker is recognised whoever sent it.
-- A sticker you have heard before is described instantly from memory.
+- A sticker you have heard before is described instantly from memory, and coming back to one speaks it again. An animated sticker or GIF is recognised whichever frame a chat shows, including the paused preview, so it always gets the same description.
+- A GIF you sent from the picker ("Your GIF" in the chat) is recognised and described from the original file.
 - The sticker picker finds stickers by what they show, say or mean, and pastes one into your chat. It never sends it: you press Enter yourself.
 - In a chat's message box, type two colons (::) to open the sticker picker. The sticker you pick replaces the colons.
 
@@ -34,9 +35,8 @@ You can also type two colons (::) in a chat's message box to open the sticker pi
 ## Requirements
 
 - Windows 10 version 1809 or later, or Windows 11. 64-bit Intel or AMD (x64), or ARM64.
-- For the graphics card model: a DirectX 12 graphics card with at least 2 gigabytes of its own memory. On built-in graphics that share the computer's memory (most laptops), the processor model is faster.
-- For the processor-only model: 16 gigabytes of memory is recommended. The model uses about 4 gigabytes while StickerSense runs.
-- About 4 gigabytes of free disk space for the model.
+- The fast model (Qwen3-VL 2B, the default) runs on the processor: 8 gigabytes of memory or more. It uses about 2 gigabytes while StickerSense runs, and 1.4 gigabytes of disk.
+- Optionally, Phi-3.5-vision: for a DirectX 12 graphics card with at least 2 gigabytes of its own memory (2.6 gigabytes of disk), or for the processor (16 gigabytes of memory recommended, 3.2 gigabytes of disk). On a processor it's about two and a half times slower than the fast model.
 
 ## Installing
 
@@ -64,43 +64,51 @@ The StickerSense window has three parts, each with a heading:
 
 ### Without the model
 
-If you have the app without the model, Setup offers to download it from Hugging Face. Choose:
+If you have the app without the model, Setup offers to download one from Hugging Face. Choose:
 
-- Download for the graphics card: about 2.6 gigabytes. Recommended when your graphics card has 2 gigabytes or more of its own memory.
-- Download for the processor only: about 3.2 gigabytes. Works on any computer. Recommended for built-in graphics, where it's the faster of the two.
+- The fast model, Qwen3-VL 2B, for the processor: about 1.4 gigabytes. Recommended for most computers, including every laptop with built-in graphics.
+- Phi-3.5-vision for the graphics card: about 2.6 gigabytes. Recommended when your graphics card has 2 gigabytes or more of its own memory.
+- Phi-3.5-vision for the processor: about 3.2 gigabytes.
 
-Setup marks the one it recommends for your computer.
+Setup marks the one it recommends for your computer. The model you download last is the one used; with more than one installed, choose in Settings.
 
 StickerSense announces the download progress every 10 percent. You can keep using your computer, cancel, and continue later from where it stopped.
 
 ## The description model
 
-StickerSense uses Microsoft's Phi-3.5-vision-instruct model, int4 ONNX build, from [microsoft/Phi-3.5-vision-instruct-onnx](https://huggingface.co/microsoft/Phi-3.5-vision-instruct-onnx), run with ONNX Runtime GenAI and DirectML.
+StickerSense describes stickers with one of two on-device vision models, int4 ONNX builds run with ONNX Runtime GenAI:
 
-StickerSense looks for the model in this order:
+- Qwen3-VL-2B-Instruct (the default, "the fast model"), from [onnx-community/Qwen3-VL-2B-Instruct-ONNX](https://huggingface.co/onnx-community/Qwen3-VL-2B-Instruct-ONNX), folder `onnxruntime/cpu_and_mobile/cpu-int4-rtn-block-32`. It runs on the processor.
+- Phi-3.5-vision-instruct, from [microsoft/Phi-3.5-vision-instruct-onnx](https://huggingface.co/microsoft/Phi-3.5-vision-instruct-onnx): `gpu/gpu-int4-rtn-block-32` for graphics cards (DirectML), or `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4` for the processor.
 
-1. `models\phi-3.5-vision\` next to `StickerSense.exe` (the bundled release).
-2. `%LOCALAPPDATA%\StickerSense\models\phi-3.5-vision\` (downloaded from Setup).
+StickerSense looks for a model in this order, the one chosen in Settings first:
 
-The folder must contain the files of one of these Hugging Face folders:
+1. `models\qwen3-vl-2b\` next to `StickerSense.exe` (the bundled release), then `%LOCALAPPDATA%\StickerSense\models\qwen3-vl-2b\` (downloaded from Setup).
+2. `models\phi-3.5-vision\` next to `StickerSense.exe`, then `%LOCALAPPDATA%\StickerSense\models\phi-3.5-vision\`.
 
-- Graphics card: `gpu/gpu-int4-rtn-block-32`
-- Processor only: `cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4`
-
-The graphics card model runs through DirectML. If the graphics card can't run it, StickerSense switches to the processor by itself. On built-in graphics that share the computer's memory, StickerSense runs it on the processor from the start, because that's faster there. In Settings you can choose "The graphics card" or "The processor only" instead.
+Phi-3.5-vision's graphics card build runs through DirectML. If the graphics card can't run it, StickerSense switches to the processor by itself. On built-in graphics that share the computer's memory, StickerSense runs it on the processor from the start, because that's faster there. In Settings you can choose "The graphics card" or "The processor only" instead.
 
 The model runs in a separate background process (`StickerSense.exe --engine`), so a problem inside the model can't close StickerSense. If that process stops, StickerSense says the description failed and starts it again.
 
-How fast is it? Measured on an Intel Core i7-11700 (8 cores, 16 gigabytes) with the processor model:
+### How fast is it?
 
-- Loading the model when StickerSense starts: about 12 to 14 seconds, in the background.
-- A still sticker: about 9 to 11 seconds. An animated one (3 frames): about 25 seconds.
-- The detailed description: about 20 to 25 seconds for a still sticker, 35 to 40 for an animated one.
-- A sticker heard before: instant.
+Measured on an Intel Core i7-11700 (8 cores, 16 gigabytes, built-in Intel UHD Graphics 750), middle of three runs:
 
-On that computer's built-in Intel UHD Graphics 750, the graphics card model took about 100 seconds per sticker, which is why StickerSense uses the processor there. A graphics card with its own memory is much faster.
+| | The fast model (Qwen3-VL 2B) | Phi-3.5-vision, processor |
+|---|---|---|
+| Loading when StickerSense starts | about 4 seconds | about 6 seconds |
+| A still sticker | 3 to 4 seconds | about 10 seconds (11 the first time) |
+| An animated sticker or GIF | 5 to 7 seconds | about 22 seconds |
+| The detailed description | 8 to 14 seconds | 28 to 40 seconds |
+| A sticker heard before | instant | instant |
 
-To keep descriptions quick, StickerSense gives the model each picture as one 336-pixel square plus an overview, instead of the 17 tiles ONNX Runtime's own image processor makes. That's about 6 times faster with the same description; the words on a sticker come from Windows text recognition anyway.
+On that computer's built-in graphics, Phi-3.5-vision's graphics card build took about 100 seconds a sticker, which is why StickerSense uses the processor there. A graphics card with its own memory is much faster.
+
+How it stays quick:
+
+- Pictures go to the model small: Qwen3-VL spends one token on every 32 by 32 pixels, so a quick reading gets a 336-pixel picture (frames of an animation, 256 pixels each). The detailed description gets larger ones. Phi-3.5-vision gets each picture as one 336-pixel square plus an overview, instead of the 17 tiles ONNX Runtime's own image processor makes, about 6 times faster; an animation's frames go to it side by side in one picture, with one overview for all of them.
+- The quick reading asks for just the lines that are spoken, and stops as soon as they're written. The detailed description stops after five sentences.
+- The words on a sticker come from Windows text recognition, not the model.
 
 Descriptions are in your Windows display language. Text written on a sticker is kept in its own language.
 
@@ -189,7 +197,8 @@ Open Settings from the StickerSense menu. You can:
 - Turn automatic descriptions on or off, and choose chat apps and browsers only, or every app.
 - Add what the sticker means to short descriptions.
 - Type two colons (::) in a chat to open the sticker picker. On by default.
-- Choose where the model runs: automatically (the graphics card if it has its own memory, otherwise the processor), the graphics card, or the processor only.
+- Choose the description model, when more than one is installed: automatically the fast model, or Phi-3.5-vision.
+- Choose where Phi-3.5-vision runs: automatically (the graphics card if it has its own memory, otherwise the processor), the graphics card, or the processor only.
 - Turn the quiet sounds on or off, and set their volume.
 - Choose your screen reader or the Windows voice for speech.
 - Change the shortcut keys.
@@ -255,10 +264,10 @@ On Windows, run:
 powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1
 ```
 
-This publishes a self-contained build to `windows\publish\StickerSense-win-x64` and downloads the graphics card model into its `models\phi-3.5-vision` folder. Options:
+This publishes a self-contained build to `windows\publish\StickerSense-win-x64` and downloads the fast model into its `models\qwen3-vl-2b` folder. Options:
 
 - `-Runtime win-arm64`: build for ARM64.
-- `-Variant Cpu`: bundle the processor-only model instead. It's the faster choice for computers with built-in graphics.
+- `-Variant DirectML`: bundle Phi-3.5-vision for graphics cards instead, or `-Variant Cpu` for Phi-3.5-vision on the processor.
 - `-SkipModel`: leave the model out; users download it from Setup.
 - `-SkipNvdaController`: leave out NVDA's controller client. By default the script downloads it from NV Access (a pinned version, checked against its SHA-256) and puts the DLL and its licence next to `StickerSense.exe`.
 - `-NvdaControllerDll path`: include this `nvdaControllerClient.dll` instead of downloading one.
@@ -270,8 +279,8 @@ Running the script again resumes an interrupted model download.
 
 `StickerSense.exe` has a few command-line modes for testing and bug reports. They print plain text and JSON, and don't touch a running StickerSense:
 
-- `--self-test [--out report.json] [--model-dir folder] [--device auto|cpu|gpu] [--no-models]`: checks what can be checked without a person at the keyboard (graphics, screen reader detection and speech route, icon, image decoding, GIPHY parsing, the library, text recognition) and times the model's quick and detailed descriptions of two built-in test stickers. Exit code 0 when everything passed.
-- `--download-model directml|cpu [--to folder]`: downloads the model the way Setup does, printing progress, size and speed.
+- `--self-test [--out report.json] [--model-dir folder] [--device auto|cpu|gpu] [--no-models] [--repeat N] [--fixture file] [--no-detail] [--threads N] [--warmup]`: checks what can be checked without a person at the keyboard (graphics, screen reader detection and speech route, icon, image decoding, GIPHY parsing, the library, text recognition) and times the model's quick and detailed descriptions of two built-in test stickers plus any `--fixture` files, `--repeat` times each (reporting the middle time and every text). Exit code 0 when everything passed.
+- `--download-model qwen|directml|cpu [--to folder]`: downloads a model the way Setup does, printing progress, size and speed.
 - `--test-window`: a small stand-in chat with a sticker (an image named "Sticker from Test User, 10:00") and a message box.
 - `--watch-app name` (with a normal start): also treats that app as a chat app, for example `--watch-app StickerSense` for the test window. Not saved.
 - `--quit`: closes the running StickerSense, as Quit in its menu does.
@@ -280,18 +289,20 @@ Running the script again resumes an interrupted model download.
 
 ## Troubleshooting
 
+- "There's nothing visible there to describe": the area under focus is one flat colour, for example an empty part of a window or a protected video. Blank areas are never described or remembered.
 - "Focus is on a large area": focus is on a whole chat or window. Move focus onto the message or sticker. When nothing has focus, StickerSense describes a square around the mouse pointer instead.
 - Nothing is spoken automatically: check that automatic descriptions are on (Control Alt Shift A) and that focus really moves to the sticker; see the browse mode notes above. Right after switching apps, StickerSense waits a moment before describing.
 - Imported WhatsApp stickers aren't described yet: that only happens while the computer is idle for 90 seconds or more, with battery saver off.
 - "The description model isn't installed yet": open Setup and download it.
-- "The description model couldn't start": choose "The processor only" in Settings, or download the processor model in Setup.
-- The first description after starting takes a while: the model loads in the background when StickerSense starts. After that, a description takes a few seconds on a graphics card with its own memory, and about 10 seconds (25 for an animated sticker) on a fast processor. Stickers heard before are instant. See "How fast is it?" above.
+- "The description model couldn't start": choose "The processor only" in Settings, or download the fast model in Setup.
+- The first description after starting takes a while: the model loads in the background when StickerSense starts (about 4 seconds for the fast model). After that, a description takes 3 to 7 seconds with the fast model on a recent processor. Stickers heard before are instant. See "How fast is it?" above.
 - Words on stickers aren't read exactly: install a text recognition (OCR) language. In Windows Settings, go to Time and language, Language and region, open your language's options, and add Optical character recognition.
 - To see what happened, choose Show Activity Log in Settings.
 
 ## Third-party components
 
 - ONNX Runtime and ONNX Runtime GenAI with DirectML, by Microsoft: MIT license.
+- Qwen3-VL-2B-Instruct, by the Qwen team (Alibaba Cloud): Apache 2.0 license. ONNX build by onnx-community.
 - Phi-3.5-vision-instruct, by Microsoft: MIT license.
 - SixLabors.ImageSharp: Six Labors Split License (Apache 2.0 for open source projects and small organisations). StickerSense stays on version 3.1 because version 4 needs a license key to build. Known 3.1 security advisories are in parts it doesn't use: TIFF images and histogram equalisation. ICC colour profiles are never read.
 - Interop.UIAutomationClient: MIT license.

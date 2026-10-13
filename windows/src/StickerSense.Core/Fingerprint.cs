@@ -129,6 +129,27 @@ public sealed class Thumbprint : IEquatable<Thumbprint>
     [JsonPropertyName("rgb")]
     public byte[] Rgb { get; }
 
+    /// <summary>Every pixel about the same colour (a blank capture): each channel varies by 10 or less.</summary>
+    [JsonIgnore]
+    public bool IsUniform
+    {
+        get
+        {
+            if (Rgb.Length < 3) return true;
+            for (var channel = 0; channel < 3; channel++)
+            {
+                int low = 255, high = 0;
+                for (var i = channel; i < Rgb.Length; i += 3)
+                {
+                    low = Math.Min(low, Rgb[i]);
+                    high = Math.Max(high, Rgb[i]);
+                }
+                if (high - low > 10) return false;
+            }
+            return true;
+        }
+    }
+
     /// <summary>Mean absolute difference in 0…1.</summary>
     public double Difference(Thumbprint other)
     {

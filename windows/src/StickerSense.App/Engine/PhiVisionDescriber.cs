@@ -47,6 +47,27 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
 
     public EngineDevice Device { get; private set; } = EngineDevice.Automatic;
 
+    /// <summary>
+    /// Phi-3.5-vision gives every picture an overview of its own: animation frames side by side in
+    /// one picture cost one crop each and a single overview, about a third less to process.
+    /// Qwen reads a strip as several things side by side, and separate frames cost it no more.
+    /// </summary>
+    protected override int SideBySideCell =>
+        ModelDirectory is { } directory && ModelCatalog.ModelType(directory) is "qwen3_vl" or "qwen2_5_vl"
+            ? 0 // Qwen has no per-picture overview: separate frames cost the same, and it reads them as one animation.
+            : PhiVisionInputs.CropSize;
+
+    /// <summary>
+    /// Warm the model up with a tiny generation after loading. Always done on a graphics card
+    /// (it compiles DirectML's kernels); on a processor it isn't worth it: measured on an
+    /// i7-11700, Phi-3.5-vision loads in 5.5 s instead of 12, and the first description is only
+    /// about a second slower than later ones.
+    /// </summary>
+    public bool WarmUp { get; set; }
+
+    /// <summary>Processor threads for the model; 0 for ONNX Runtime's default (one per physical core).</summary>
+    public int Threads { get; set; }
+
     /// <summary>"the graphics card (DirectML)" or "the processor" once loaded.</summary>
     public string? RunningOn => loaded?.RunningOn;
 
@@ -54,6 +75,9 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
     public long EngineMemoryMegabytes => loaded?.WorkingSetMegabytes ?? 0;
 
     public string? ModelDirectory => ModelCatalog.FindInstalled(candidateDirectories());
+
+    /// <summary>The folder of the model loaded (or loading) now; null before the first load and after a reload.</summary>
+    public string? LoadedDirectory { get; private set; }
 
     public override EngineStatus Status
     {
@@ -85,6 +109,7 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
             old = loaded;
             loaded = null;
             loading = null;
+            LoadedDirectory = null;
         }
         // Wait for any running request before closing the engine it uses.
         _ = Task.Run(async () =>
@@ -125,6 +150,7 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
                 return Task.FromException<EngineProcess>(DescribeException.EngineUnavailable(status));
             }
             var device = Device;
+            LoadedDirectory = directory;
             status = new EngineStatus(EngineState.Loading);
             current = loading = Task.Run(() => LoadAsync(directory, device));
         }
@@ -157,6 +183,14 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
 
     private Task<EngineProcess> LoadAsync(string directory, EngineDevice device)
     {
+        var type = ModelCatalog.ModelType(directory);
+        if (type is not (null or "phi3v"))
+        {
+            // Other model families run on the processor.
+            log.Add($"Loading {type} model from {directory}");
+            return EngineProcess.StartAsync(new EngineLoadOptions(directory, false, StickerPrompts.ShortInstructions(Options.EffectiveLanguage), WarmUp, Threads),
+                message => log.Add(message));
+        }
         var variant = ModelCatalog.DetectVariant(directory);
         log.Add($"Loading {variant} model from {directory}");
         var tryGraphicsCard = false;
@@ -168,7 +202,8 @@ internal sealed class PhiVisionDescriber : VisionLanguageDescriber, IDisposable
         {
             tryGraphicsCard = true;
         }
-        return EngineProcess.StartAsync(directory, tryGraphicsCard, StickerPrompts.ShortInstructions(Options.EffectiveLanguage), message => log.Add(message));
+        var options = new EngineLoadOptions(directory, tryGraphicsCard, StickerPrompts.ShortInstructions(Options.EffectiveLanguage), WarmUp, Threads);
+        return EngineProcess.StartAsync(options, message => log.Add(message));
     }
 
     protected override async Task<string> GenerateAsync(VisionRequest request, DescribePriority priority, CancellationToken ct)

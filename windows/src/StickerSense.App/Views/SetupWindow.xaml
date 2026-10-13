@@ -57,10 +57,12 @@
                              Visibility="{Binding Downloading, Converter={StaticResource VisibleWhen}}"
                              AutomationProperties.Name="Model download progress" />
                 <WrapPanel Visibility="{Binding CanDownload, Converter={StaticResource VisibleWhen}}">
+                    <Button Content="{Binding FastDownloadTitle}" Click="DownloadFast_Click"
+                            AutomationProperties.HelpText="Downloads Qwen3-VL 2B from Hugging Face. Runs on the processor of any computer with 8 gigabytes of memory or more, and describes a sticker in a few seconds." />
                     <Button Content="{Binding GpuDownloadTitle}" Click="DownloadGpu_Click"
-                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for DirectML from Hugging Face. Runs on this computer only." />
+                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for DirectML from Hugging Face. Fastest on a graphics card with 2 gigabytes or more of its own memory." />
                     <Button Content="{Binding CpuDownloadTitle}" Click="DownloadCpu_Click"
-                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for the processor from Hugging Face. Slower, but works on any computer with 16 gigabytes of memory." />
+                            AutomationProperties.HelpText="Downloads Phi 3.5 vision for the processor from Hugging Face. About two and a half times slower than the fast model on a processor." />
                 </WrapPanel>
                 <Button Content="_Cancel Download" Click="CancelDownload_Click"
                         Visibility="{Binding Downloading, Converter={StaticResource VisibleWhen}}" />

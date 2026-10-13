@@ -82,7 +82,10 @@ public static partial class ReadingParser
             // The model ignored the format: use its first sentence.
             subject = FirstSentence(Filler().Replace(string.Join(" ", unlabelled), ""));
         }
-        var motion = fields.GetValueOrDefault("MOTION") ?? "";
+        // Small models run on past the word limits the prompt sets ("waves back and forth, then
+        // stops, then waves back and forth…"): keep the spoken reading short.
+        subject = Limit(subject, 12);
+        var motion = Limit(fields.GetValueOrDefault("MOTION") ?? "", 10);
         if (NoMotion().IsMatch(motion)) motion = "";
         if (animated) subject = JoinMotion(subject, motion);
 
@@ -127,6 +130,11 @@ public static partial class ReadingParser
         static string Clean(string value) => value.Trim().Trim('.').Trim();
         static string Bare(string word) => word.ToLowerInvariant().Replace("'s", "").Replace("’s", "").Trim(',', '.', '!', '?', ';', ':');
         string s = Clean(subject), m = Clean(motion);
+        // "is waving" reads better as "waving" after the subject.
+        foreach (var helper in new[] { "is ", "are ", "it is ", "they are " })
+        {
+            if (m.StartsWith(helper, StringComparison.OrdinalIgnoreCase) && m.Length > helper.Length) m = m[helper.Length..];
+        }
         if (m.Length == 0) return s;
         if (s.Length == 0) return m;
         // Models often repeat the subject ("Cartoon cat" + "cat's mouth opens"): drop the repeat.
@@ -142,6 +150,33 @@ public static partial class ReadingParser
         return $"{s}, {char.ToLowerInvariant(m[0])}{m[1..]}";
     }
 
+    /// <summary>Complete sentences in a reply so far (ended by . ! or ? and a space or line break).</summary>
+    public static int CompletedSentences(string reply) => SentenceEnd().Count(reply);
+
+    [GeneratedRegex(@"[.!?][""”']?\s")]
+    private static partial Regex SentenceEnd();
+
+    /// <summary>Words on the last (unfinished) line of a reply so far.</summary>
+    public static int LastLineWords(string reply)
+    {
+        var start = reply.LastIndexOf('\n') + 1;
+        return reply[start..].Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+    }
+
+    /// <summary>Complete (newline-ended), non-empty lines in a reply so far.</summary>
+    public static int CompletedLines(string reply)
+    {
+        var count = 0;
+        var start = 0;
+        for (var i = 0; i < reply.Length; i++)
+        {
+            if (reply[i] != '\n') continue;
+            if (!string.IsNullOrWhiteSpace(reply[start..i])) count++;
+            start = i + 1;
+        }
+        return count;
+    }
+
     /// <summary>Tidies a detailed description: no markdown, no special tokens, no "Sure! Here's…".</summary>
     public static string CleanDetail(string output)
     {
@@ -151,7 +186,33 @@ public static partial class ReadingParser
             .Select(l => Regex.Replace(l.Trim(), @"^(#+|[-*•]|\d+[.)])\s+", ""))
             .Where(l => l.Length > 0);
         text = Regex.Replace(string.Join(" ", lines), @"\s{2,}", " ").Trim();
-        return Filler().Replace(text, "").Trim();
+        text = Filler().Replace(text, "").Trim();
+        // Chatty openings ("I can help you with that. Let's go through the image…").
+        text = Preamble().Replace(text, "").Trim();
+        // Cut off at the token limit: end on the last whole sentence.
+        if (text.Length > 0 && !".!?\"”')".Contains(text[^1]))
+        {
+            var end = text.LastIndexOfAny(['.', '!', '?']);
+            if (end > 0) text = text[..(end + 1)];
+        }
+        return text;
+    }
+
+    [GeneratedRegex(@"^((I can help( you)? with that|I'd be happy to help|Certainly|Of course|Sure)[^.!]*[.!]\s*|Let'?s (go through|look at|take a look at|describe)[^.!:]*[.!:]\s*)+", RegexOptions.IgnoreCase)]
+    private static partial Regex Preamble();
+
+    /// <summary>
+    /// At most <paramref name="words"/> words: cut after the last comma within the limit when
+    /// there is one, so a list of clauses ends on a whole clause.
+    /// </summary>
+    internal static string Limit(string text, int words)
+    {
+        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length <= words) return text.Trim();
+        var kept = parts.Take(words).ToList();
+        var lastComma = kept.FindLastIndex(w => w.EndsWith(','));
+        if (lastComma >= 1) kept = kept.Take(lastComma + 1).ToList();
+        return string.Join(' ', kept).TrimEnd(',', ';', ':');
     }
 
     private static string Unquote(string value)

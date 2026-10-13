@@ -128,8 +128,10 @@ public class StickerDetectorTests
     {
         const string message = "Message from Ana, hey can you send me that sticker you sent yesterday it was so funny, 15:49";
         Assert.Equal(StickerVerdict.NotSticker, StickerDetector.Verdict(Target(message, w: 600, h: 60)));
-        // …but an image element whose long alt text says sticker is one.
-        Assert.Equal(StickerVerdict.Sticker, StickerDetector.Verdict(Target(message, image: true)));
+        // …even on an image ("that sticker" is a sentence about one, not an item type)…
+        Assert.Equal(StickerVerdict.NotSticker, StickerDetector.Verdict(Target(message, image: true)));
+        // …but an image element whose long alt text says it is a sticker is one.
+        Assert.Equal(StickerVerdict.Sticker, StickerDetector.Verdict(Target("Sticker of a cat saying hi, sent by Ana yesterday afternoon in the family chat, 15:49", image: true)));
     }
 
     [Fact]

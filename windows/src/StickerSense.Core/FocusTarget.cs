@@ -106,19 +106,31 @@ public enum StickerVerdict
 /// </summary>
 public static class StickerDetector
 {
-    /// <summary>Chat apps and browsers (for WhatsApp Web, Messenger, Instagram, Discord on the web…), by process name.</summary>
-    public static readonly IReadOnlySet<string> ChatApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Native chat apps, by process name.</summary>
+    public static readonly IReadOnlySet<string> NativeChatApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "whatsapp", "whatsapp.root", "telegram", "discord", "signal", "slack", "ms-teams", "teams", "messenger",
         "viber", "line", "kakaotalk", "wechat", "weixin", "skype", "element",
+    };
+
+    /// <summary>
+    /// Browsers (for WhatsApp Web, Messenger, Instagram, Discord on the web…) and web views. Pages
+    /// there are full of ordinary text, so only things the screen reader calls an image can
+    /// trigger auto mode.
+    /// </summary>
+    public static readonly IReadOnlySet<string> Browsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
         "chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "msedgewebview2",
     };
 
-    /// <summary>Sticker or GIF according to the label, role and size (sizes in device-independent pixels).</summary>
+    public static readonly IReadOnlySet<string> ChatApps = new HashSet<string>(NativeChatApps.Concat(Browsers), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Sticker or GIF according to the label, role, size (in device-independent pixels) and app.</summary>
     public static StickerVerdict Verdict(FocusTarget target)
     {
         var scale = target.DisplayScale > 0 ? target.DisplayScale : 1.0;
-        return LabelClassifier.Classify(target.Text, target.Bounds.Width / scale, target.Bounds.Height / scale, target.IsImage);
+        return LabelClassifier.Classify(target.Text, target.Bounds.Width / scale, target.Bounds.Height / scale, target.IsImage,
+            inBrowser: Browsers.Contains(target.AppName));
     }
 
     /// <param name="alsoWatched">Extra process names to treat as chat apps (a test-only allowance, e.g. the self-test chat window).</param>

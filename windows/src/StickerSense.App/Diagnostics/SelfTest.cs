@@ -23,7 +23,10 @@ namespace StickerSense.App.Diagnostics;
 /// </summary>
 /// <remarks>
 /// Options: <c>--out report.json</c>, <c>--model-dir folder</c> (repeatable; default: the installed
-/// model), <c>--device auto|cpu|gpu</c>, <c>--no-models</c>, <c>--timeout-minutes 10</c>.
+/// model), <c>--device auto|cpu|gpu</c>, <c>--no-models</c>, <c>--timeout-minutes 10</c>,
+/// <c>--repeat N</c> (each sticker N times; medians reported), <c>--fixture file</c> (repeatable:
+/// more stickers to describe, still or animated), <c>--no-detail</c>, <c>--warmup</c> (warm the model up on a processor too),
+/// <c>--threads N</c>.
 /// </remarks>
 internal sealed class SelfTest(string[] args, TextWriter output)
 {
@@ -335,7 +338,7 @@ internal sealed class SelfTest(string[] args, TextWriter output)
             {
                 "cpu" => EngineDevice.ProcessorOnly,
                 "gpu" => EngineDevice.GraphicsCard,
-                _ => variant == ModelVariant.Cpu ? EngineDevice.ProcessorOnly : EngineDevice.Automatic,
+                _ => variant == ModelVariant.DirectML ? EngineDevice.Automatic : EngineDevice.ProcessorOnly,
             };
             var run = await ModelRun(dir, variant, device, ocr, timeout);
             ok &= run["ok"]?.GetValue<bool>() == true;
@@ -344,11 +347,22 @@ internal sealed class SelfTest(string[] args, TextWriter output)
         return new JsonObject { ["ok"] = ok, ["runs"] = runs, ["note"] = dirs.Count == 0 ? "no model installed" : null };
     }
 
+    private static long? Median(List<long> values)
+    {
+        if (values.Count == 0) return null;
+        var sorted = values.OrderBy(v => v).ToList();
+        return sorted.Count % 2 == 1 ? sorted[sorted.Count / 2] : (sorted[sorted.Count / 2 - 1] + sorted[sorted.Count / 2]) / 2;
+    }
+
     private async Task<JsonObject> ModelRun(string dir, ModelVariant variant, EngineDevice device, WindowsOcrReader ocr, TimeSpan timeout)
     {
         output.WriteLine($"   model {variant} in {dir}, device {device}");
         var result = new JsonObject { ["dir"] = dir, ["variant"] = variant.ToString(), ["device"] = device.ToString() };
-        using var describer = new PhiVisionDescriber(() => [dir], log, new DescriberOptions());
+        using var describer = new PhiVisionDescriber(() => [dir], log, new DescriberOptions())
+        {
+            WarmUp = args.Contains("--warmup"),
+            Threads = int.TryParse(Value(args, "--threads"), out var threads) ? threads : 0,
+        };
         describer.Reload(device);
         var watch = Stopwatch.StartNew();
         try
@@ -369,55 +383,90 @@ internal sealed class SelfTest(string[] args, TextWriter output)
         result["engineMemoryMB"] = describer.EngineMemoryMegabytes;
         result["appMemoryMB"] = Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024);
 
-        // A fresh, empty library each run, so nothing is answered from an earlier run's cache.
-        var libraryDir = Path.Combine(Path.GetTempPath(), "StickerSense-self-test-" + Guid.NewGuid().ToString("N"));
-        var library = new StickerLibrary(libraryDir);
-        var pipeline = new StickerPipeline(describer, library, new TimeLimitedOcrReader(ocr, TimeSpan.FromSeconds(1.5)));
+        var repeat = int.TryParse(Value(args, "--repeat"), out var r) ? Math.Clamp(r, 1, 20) : 1;
+        var withDetail = !args.Contains("--no-detail");
+        var fixtures = new List<(string Name, Func<List<SixLabors.ImageSharp.Image<Rgba32>>> Frames)>
+        {
+            ("static birthday sticker", () => [TestStickers.Birthday()]),
+            ("3-frame animated face", TestStickers.Animated),
+        };
+        foreach (var path in Values("--fixture")) fixtures.Add((Path.GetFileName(path), () => StickerPipeline.LoadDistinct(path)));
+
         var stickers = new JsonArray();
         var ok = true;
-        foreach (var (name, frames) in new[] { ("static birthday sticker", new List<SixLabors.ImageSharp.Image<Rgba32>> { TestStickers.Birthday() }), ("3-frame animated face", TestStickers.Animated()) })
+        foreach (var (name, load) in fixtures)
         {
-            var entry = new JsonObject { ["name"] = name, ["frames"] = frames.Count };
-            try
+            var entry = new JsonObject { ["name"] = name };
+            var quickMs = new List<long>();
+            var detailMs = new List<long>();
+            var quickTexts = new JsonArray();
+            var detailTexts = new JsonArray();
+            for (var run = 1; run <= repeat; run++)
             {
-                using var cts = new CancellationTokenSource(timeout);
-                watch.Restart();
-                var reading = await pipeline.ReadAsync(frames, DescriptionContext.File, cts.Token);
-                entry["quickMs"] = watch.ElapsedMilliseconds;
-                entry["quick"] = new JsonObject
+                // A fresh, empty library each run, so nothing is answered from an earlier run's cache.
+                var libraryDir = Path.Combine(Path.GetTempPath(), "StickerSense-self-test-" + Guid.NewGuid().ToString("N"));
+                var library = new StickerLibrary(libraryDir);
+                var pipeline = new StickerPipeline(describer, library, new TimeLimitedOcrReader(ocr, TimeSpan.FromSeconds(1.5)));
+                var frames = load();
+                entry["frames"] = frames.Count;
+                try
                 {
-                    ["kind"] = reading.Kind.RawValue(),
-                    ["subject"] = reading.Subject,
-                    ["text"] = reading.Text,
-                    ["animated"] = reading.Animated,
-                    ["spoken"] = SpokenText.Short(reading),
-                };
-                output.WriteLine($"   {name}: {SpokenText.Short(reading)} ({entry["quickMs"]} ms)");
-                watch.Restart();
-                var ocrText = await pipeline.OcrTextAsync(frames, DescriptionContext.File, cts.Token);
-                var detail = await describer.DetailedAsync(frames, DescriptionContext.File, ocrText, reading, DescribePriority.Foreground, cts.Token);
-                entry["detailMs"] = watch.ElapsedMilliseconds;
-                entry["detail"] = detail;
-                output.WriteLine($"   detail ({entry["detailMs"]} ms): {detail}");
+                    using var cts = new CancellationTokenSource(timeout);
+                    watch.Restart();
+                    var reading = await pipeline.ReadAsync(frames, DescriptionContext.File, cts.Token);
+                    quickMs.Add(watch.ElapsedMilliseconds);
+                    quickTexts.Add(JsonValue.Create(SpokenText.Short(reading)));
+                    if (run == 1)
+                    {
+                        entry["quick"] = new JsonObject
+                        {
+                            ["kind"] = reading.Kind.RawValue(),
+                            ["subject"] = reading.Subject,
+                            ["text"] = reading.Text,
+                            ["animated"] = reading.Animated,
+                            ["spoken"] = SpokenText.Short(reading),
+                        };
+                    }
+                    output.WriteLine($"   {name} #{run}: {SpokenText.Short(reading)} ({quickMs[^1]} ms)");
+                    if (withDetail)
+                    {
+                        watch.Restart();
+                        var ocrText = await pipeline.OcrTextAsync(frames, DescriptionContext.File, cts.Token);
+                        var detail = await describer.DetailedAsync(frames, DescriptionContext.File, ocrText, reading, DescribePriority.Foreground, cts.Token);
+                        detailMs.Add(watch.ElapsedMilliseconds);
+                        detailTexts.Add(JsonValue.Create(detail));
+                        output.WriteLine($"   detail #{run} ({detailMs[^1]} ms): {detail}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    entry["error"] = e.Message;
+                    ok = false;
+                }
+                finally
+                {
+                    foreach (var frame in frames) frame.Dispose();
+                    library.Dispose();
+                    try
+                    {
+                        Directory.Delete(libraryDir, recursive: true);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                    }
+                }
             }
-            catch (Exception e)
+            entry["quickMs"] = Median(quickMs) is { } quickMedian ? JsonValue.Create(quickMedian) : null;
+            entry["quickRunsMs"] = new JsonArray(quickMs.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray());
+            entry["quickTexts"] = quickTexts;
+            if (withDetail)
             {
-                entry["error"] = e.Message;
-                ok = false;
-            }
-            finally
-            {
-                foreach (var frame in frames) frame.Dispose();
+                entry["detailMs"] = Median(detailMs) is { } detailMedian ? JsonValue.Create(detailMedian) : null;
+                entry["detailRunsMs"] = new JsonArray(detailMs.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray());
+                entry["detail"] = detailTexts.Count > 0 ? detailTexts[0]?.DeepClone() : null;
+                entry["detailTexts"] = detailTexts;
             }
             stickers.Add(entry);
-        }
-        library.Dispose();
-        try
-        {
-            Directory.Delete(libraryDir, recursive: true);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
         }
         result["stickers"] = stickers;
         result["ok"] = ok;

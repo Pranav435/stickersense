@@ -115,6 +115,10 @@ public interface IStickerDescriber
 /// <paramref name="ReplyStart"/> is written as the start of the model's own reply, which it then
 /// continues: small models that ignore "reply with these lines" follow a reply already begun with
 /// "KIND:". Engines put it after the assistant tag; the reply passed back starts with it.
+/// With <paramref name="StopAfterLines"/> above 0, engines stop once the reply (counting the reply
+/// start) has that many complete, non-empty lines; with <paramref name="StopAfterSentences"/>, once
+/// it has that many sentences; with <paramref name="MaxLineWords"/>, once a line runs past that many
+/// words (a model listing "confused, unsure, puzzled, confused…").
 /// </summary>
 public sealed record VisionRequest(
     string Instructions,
@@ -122,7 +126,11 @@ public sealed record VisionRequest(
     IReadOnlyList<Image<Rgba32>> Images,
     int MaxNewTokens,
     double Temperature,
-    string ReplyStart = "");
+    string ReplyStart = "",
+    int StopAfterLines = 0,
+    double RepetitionPenalty = 1.0,
+    int StopAfterSentences = 0,
+    int MaxLineWords = 0);
 
 /// <summary>
 /// Shared logic for vision-language-model describers: frame preparation, prompts and parsing.
@@ -150,6 +158,20 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
     /// <summary>Generates the model's reply text for one request: what follows <see cref="VisionRequest.ReplyStart"/>.</summary>
     protected abstract Task<string> GenerateAsync(VisionRequest request, DescribePriority priority, CancellationToken ct);
 
+    /// <summary>
+    /// When above 0, an animation's frames go to the model as one picture, side by side in
+    /// squares of this many pixels, instead of one picture per frame. For models whose cost grows
+    /// with every picture (each one carries an overview of its own), that's much cheaper.
+    /// </summary>
+    protected virtual int SideBySideCell => 0;
+
+    /// <summary>The pictures to send: the frames themselves, or one side-by-side strip of them.</summary>
+    private (List<Image<Rgba32>> Images, bool SideBySide) Layout(List<Image<Rgba32>> prepared)
+    {
+        if (prepared.Count < 2 || SideBySideCell <= 0) return (prepared, false);
+        return ([ImagePrep.SideBySide(prepared, SideBySideCell)], true);
+    }
+
     public async Task<StickerReading> ReadAsync(
         IReadOnlyList<Image<Rgba32>> frames,
         DescriptionContext context,
@@ -159,6 +181,7 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
     {
         EnsureUsable();
         var prepared = await PrepareAsync(frames, ct).ConfigureAwait(false);
+        var (images, sideBySide) = Layout(prepared);
         try
         {
             var animated = prepared.Count > 1;
@@ -168,17 +191,21 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
             var language = Options.EffectiveLanguage;
             var request = new VisionRequest(
                 StickerPrompts.ShortInstructions(language),
-                StickerPrompts.ShortPrompt(prepared.Count, hint, context.Label, language, Options.IncludeMeaning),
-                prepared,
-                MaxNewTokens: 100,
+                StickerPrompts.ShortPrompt(prepared.Count, hint, context.Label, language, Options.IncludeMeaning, sideBySide),
+                images,
+                MaxNewTokens: StickerPrompts.ShortReplyTokens(animated, Options.IncludeMeaning),
                 Temperature: 0.2,
-                ReplyStart: "KIND:");
+                ReplyStart: "KIND:",
+                StopAfterLines: StickerPrompts.ShortReplyLines(animated, Options.IncludeMeaning),
+                // The lines ask for 12 words at most; the parser keeps 12 anyway.
+                MaxLineWords: 18);
             var output = request.ReplyStart + await GenerateGuardedAsync(request, priority, ct).ConfigureAwait(false);
             return ReadingParser.Parse(output, animated, hint, chromeLabel);
         }
         finally
         {
             foreach (var image in prepared) image.Dispose();
+            if (sideBySide) foreach (var image in images) image.Dispose();
         }
     }
 
@@ -192,15 +219,20 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
     {
         EnsureUsable();
         var prepared = await PrepareAsync(frames, ct).ConfigureAwait(false);
+        var (images, sideBySide) = Layout(prepared);
         try
         {
             var language = Options.EffectiveLanguage;
             var request = new VisionRequest(
                 StickerPrompts.DetailInstructions(language),
-                StickerPrompts.DetailPrompt(prepared.Count, ocrText, context.Label, shortReading),
-                prepared,
+                StickerPrompts.DetailPrompt(prepared.Count, ocrText, context.Label, shortReading, sideBySide),
+                images,
                 MaxNewTokens: 220,
-                Temperature: 0.3);
+                Temperature: 0.3,
+                // Small models sometimes get stuck repeating a sentence until the token limit.
+                RepetitionPenalty: 1.1,
+                // Asked for 3 or 4 sentences (and what it means); some models keep going.
+                StopAfterSentences: 5);
             var output = await GenerateGuardedAsync(request, priority, ct).ConfigureAwait(false);
             var text = ReadingParser.CleanDetail(output);
             if (text.Length == 0) throw DescribeException.Failed("the model gave no answer");
@@ -209,6 +241,7 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
         finally
         {
             foreach (var image in prepared) image.Dispose();
+            if (sideBySide) foreach (var image in images) image.Dispose();
         }
     }
 

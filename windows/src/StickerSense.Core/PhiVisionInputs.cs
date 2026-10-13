@@ -5,6 +5,13 @@ using SixLabors.ImageSharp.Processing;
 
 namespace StickerSense.Core;
 
+/// <summary>Phi-3.5-vision's image inputs for one request (see <see cref="PhiVisionInputs.Prepare"/>).</summary>
+/// <param name="PixelValues">[pictures, Slots, 3, 336, 336], CLIP-normalised, channel first.</param>
+/// <param name="Slots">Overview plus crops of the picture with the most crops; others are zero-padded.</param>
+/// <param name="ImageSizes">Each picture's resized height and width: [pictures, 2].</param>
+/// <param name="TokenCounts">Tokens each picture takes, for GenAI's <c>num_image_tokens</c>.</param>
+public sealed record PhiImageBatch(float[] PixelValues, int Slots, long[] ImageSizes, long[] TokenCounts);
+
 /// <summary>
 /// Phi-3.5-vision's image inputs, built here instead of by ONNX Runtime GenAI's processor.
 /// </summary>
@@ -14,19 +21,20 @@ namespace StickerSense.Core;
 /// typical laptop processor, and long enough on an integrated graphics card to trip Windows'
 /// GPU timeout. A sticker is small and simple, so one crop plus the overview (313 tokens) is
 /// enough, and measured on an i7-11700 it's about six times faster with the same description.
-/// Words on stickers come from Windows' text recognition anyway, not from the model reading them.
+/// Animation frames side by side (<see cref="ImagePrep.SideBySide"/>) get one crop per frame
+/// and a single overview. Words on stickers come from Windows' text recognition anyway.
 /// </remarks>
 public static class PhiVisionInputs
 {
     public const int CropSize = 336;
 
-    /// <summary>Each picture: its overview plus one crop. (Both are the same 336-pixel square.)</summary>
-    public const int SlotsPerImage = 2;
+    /// <summary>At most this many crops across (or down) one picture.</summary>
+    public const int MaxCrops = 4;
 
     /// <summary>Feature tokens for a crop grid: 144 per crop and for the overview, one separator, and 12 newlines per row.</summary>
     public static int Tokens(int rows, int columns) => (rows * columns + 1) * 144 + 1 + (rows + 1) * 12;
 
-    /// <summary>Tokens each picture takes with one crop: 313.</summary>
+    /// <summary>Tokens a square picture takes (one crop): 313.</summary>
     public static int TokensPerImage => Tokens(1, 1);
 
     // CLIP's normalisation, which Phi-3.5-vision's image encoder was trained with.
@@ -36,78 +44,101 @@ public static class PhiVisionInputs
     private static readonly Regex ImageTag = new(@"<\|image_\d+\|>", RegexOptions.CultureInvariant);
 
     /// <summary>
-    /// The model's <c>pixel_values</c>: for each picture, its overview and its one crop, each
-    /// 3 × 336 × 336, channel first, CLIP-normalised. Shape [pictures, 2, 3, 336, 336].
-    /// Transparent parts become white, and pictures are letterboxed onto white squares.
+    /// Crops for a picture: one for a square-ish picture; for a strip, one per square along it
+    /// (3 frames side by side: 1 row of 3).
     /// </summary>
-    public static float[] PixelValues(IReadOnlyList<Image<Rgba32>> images)
+    public static (int Rows, int Columns) Grid(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return (1, 1);
+        return width >= height
+            ? (1, Math.Clamp((int)Math.Round((double)width / height), 1, MaxCrops))
+            : (Math.Clamp((int)Math.Round((double)height / width), 1, MaxCrops), 1);
+    }
+
+    /// <summary>
+    /// The model's image inputs. Each picture is fitted onto white crops of its grid; its overview
+    /// is the whole grid squeezed into one crop (with a single crop, the two are the same).
+    /// </summary>
+    public static PhiImageBatch Prepare(IReadOnlyList<Image<Rgba32>> images)
     {
         const int plane = CropSize * CropSize;
-        var values = new float[images.Count * SlotsPerImage * 3 * plane];
+        var grids = images.Select(i => Grid(i.Width, i.Height)).ToList();
+        var slots = grids.Count == 0 ? 1 : grids.Max(g => 1 + g.Rows * g.Columns);
+        var values = new float[images.Count * slots * 3 * plane];
+        var sizes = new long[images.Count * 2];
+        var counts = new long[images.Count];
         for (var n = 0; n < images.Count; n++)
         {
-            using var square = Square(images[n]);
-            var first = n * SlotsPerImage * 3 * plane;
-            square.ProcessPixelRows(rows =>
+            var (rows, columns) = grids[n];
+            using var canvas = ImagePrep.Fit(images[n], columns * CropSize, rows * CropSize);
+            var first = n * slots * 3 * plane;
+            if (rows * columns == 1)
             {
-                for (var y = 0; y < CropSize; y++)
+                Fill(values, first, canvas, 0, 0);
+                // With a single crop, the overview and the crop are the same picture.
+                Array.Copy(values, first, values, first + 3 * plane, 3 * plane);
+            }
+            else
+            {
+                using (var overview = canvas.Clone(c => c.Resize(CropSize, CropSize, KnownResamplers.Bicubic)))
                 {
-                    var row = rows.GetRowSpan(y);
-                    for (var x = 0; x < CropSize; x++)
+                    Fill(values, first, overview, 0, 0);
+                }
+                for (var r = 0; r < rows; r++)
+                {
+                    for (var c = 0; c < columns; c++)
                     {
-                        var p = row[x];
-                        var i = first + y * CropSize + x;
-                        values[i] = (p.R / 255f - Mean[0]) / Std[0];
-                        values[i + plane] = (p.G / 255f - Mean[1]) / Std[1];
-                        values[i + 2 * plane] = (p.B / 255f - Mean[2]) / Std[2];
+                        Fill(values, first + (1 + r * columns + c) * 3 * plane, canvas, c * CropSize, r * CropSize);
                     }
                 }
-            });
-            // With a single crop, the overview and the crop are the same picture.
-            Array.Copy(values, first, values, first + 3 * plane, 3 * plane);
+            }
+            sizes[2 * n] = rows * CropSize;
+            sizes[2 * n + 1] = columns * CropSize;
+            counts[n] = Tokens(rows, columns);
         }
-        return values;
+        return new PhiImageBatch(values, slots, sizes, counts);
     }
 
-    /// <summary>The picture scaled to fit a white 336-pixel square, centred, transparency flattened onto white.</summary>
-    public static Image<Rgba32> Square(Image<Rgba32> image)
+    /// <summary>Writes the 336-pixel square at (left, top) as three CLIP-normalised planes starting at <paramref name="offset"/>.</summary>
+    private static void Fill(float[] values, int offset, Image<Rgba32> image, int left, int top)
     {
-        var scale = Math.Min((double)CropSize / image.Width, (double)CropSize / image.Height);
-        var width = Math.Clamp((int)Math.Round(image.Width * scale), 1, CropSize);
-        var height = Math.Clamp((int)Math.Round(image.Height * scale), 1, CropSize);
-        using var resized = image.Frames.CloneFrame(0);
-        resized.Mutate(c => c.Resize(width, height, KnownResamplers.Bicubic));
-        var square = new Image<Rgba32>(CropSize, CropSize, new Rgba32(255, 255, 255));
-        square.Mutate(c => c.DrawImage(resized, new Point((CropSize - width) / 2, (CropSize - height) / 2), 1f));
-        return square;
+        const int plane = CropSize * CropSize;
+        image.ProcessPixelRows(rows =>
+        {
+            for (var y = 0; y < CropSize; y++)
+            {
+                var row = rows.GetRowSpan(top + y);
+                for (var x = 0; x < CropSize; x++)
+                {
+                    var p = row[left + x];
+                    var i = offset + y * CropSize + x;
+                    values[i] = (p.R / 255f - Mean[0]) / Std[0];
+                    values[i + plane] = (p.G / 255f - Mean[1]) / Std[1];
+                    values[i + 2 * plane] = (p.B / 255f - Mean[2]) / Std[2];
+                }
+            }
+        });
     }
-
-    /// <summary>The model's <c>image_sizes</c>: each picture's resized height and width, [pictures, 2].</summary>
-    public static long[] ImageSizes(int imageCount) =>
-        Enumerable.Repeat(new long[] { CropSize, CropSize }, imageCount).SelectMany(s => s).ToArray();
-
-    /// <summary>Tokens per picture, for GenAI's <c>num_image_tokens</c> input.</summary>
-    public static long[] ImageTokenCounts(int imageCount) => Enumerable.Repeat((long)TokensPerImage, imageCount).ToArray();
 
     /// <summary>The prompt's text around its <c>&lt;|image_N|&gt;</c> tags, each piece to be tokenized on its own.</summary>
     public static IReadOnlyList<string> TextChunks(string prompt) => ImageTag.Split(prompt);
 
     /// <summary>
     /// The model's <c>input_ids</c>, as GenAI's processor builds them: the text pieces' tokens, with
-    /// the n-th image tag replaced by <see cref="TokensPerImage"/> copies of −n, where the
-    /// embedding model puts that picture's features.
+    /// the n-th image tag replaced by that picture's token count of −n, where the embedding model
+    /// puts the picture's features.
     /// </summary>
-    public static int[] InputIds(IReadOnlyList<int[]> chunkTokens, int imageCount)
+    public static int[] InputIds(IReadOnlyList<int[]> chunkTokens, IReadOnlyList<long> tokenCounts)
     {
-        if (chunkTokens.Count != imageCount + 1)
+        if (chunkTokens.Count != tokenCounts.Count + 1)
         {
-            throw new ArgumentException($"Expected {imageCount + 1} text pieces around {imageCount} image tags, got {chunkTokens.Count}.", nameof(chunkTokens));
+            throw new ArgumentException($"Expected {tokenCounts.Count + 1} text pieces around {tokenCounts.Count} image tags, got {chunkTokens.Count}.", nameof(chunkTokens));
         }
-        var ids = new List<int>(chunkTokens.Sum(c => c.Length) + imageCount * TokensPerImage);
+        var ids = new List<int>(chunkTokens.Sum(c => c.Length) + (int)tokenCounts.Sum());
         for (var i = 0; i < chunkTokens.Count; i++)
         {
             ids.AddRange(chunkTokens[i]);
-            if (i < imageCount) ids.AddRange(Enumerable.Repeat(-(i + 1), TokensPerImage));
+            if (i < tokenCounts.Count) ids.AddRange(Enumerable.Repeat(-(i + 1), (int)tokenCounts[i]));
         }
         return ids.ToArray();
     }

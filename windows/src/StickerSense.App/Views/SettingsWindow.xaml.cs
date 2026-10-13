@@ -41,6 +41,14 @@ internal sealed class SettingsViewModel : INotifyPropertyChanged
         new(EngineDevice.ProcessorOnly, "The processor only"),
     ];
 
+    /// <summary>The installed models to choose between (with "automatic": the fast one when installed).</summary>
+    public IReadOnlyList<Choice<ModelVariant?>> Models =>
+        new[] { new Choice<ModelVariant?>(null, "Automatic: the fast model when it's installed (recommended)") }
+            .Concat(App.InstalledModels().Select(v => new Choice<ModelVariant?>(v, v == ModelVariant.Qwen3VL2B
+                ? "Qwen3-VL 2B (fast)"
+                : "Phi-3.5-vision")))
+            .ToList();
+
     public IReadOnlyList<Choice<SpeechOutput>> SpeechOutputs { get; } =
     [
         new(SpeechOutput.ScreenReader, "My screen reader (recommended)"),
@@ -51,7 +59,7 @@ internal sealed class SettingsViewModel : INotifyPropertyChanged
         $"{App.LibraryCount} stickers in your library{(App.UndescribedCount > 0 ? $", {App.UndescribedCount} still being described" : "")}.";
 
     public string EngineSummary => App.EngineStatus.IsReady && App.Describer.RunningOn is { } device
-        ? $"The model is running on {device}."
+        ? $"{(App.Describer.LoadedDirectory is { } directory ? ModelCatalog.FamilyName(ModelCatalog.DetectVariant(directory)) : "The model")} is running on {device}."
         : App.EngineStatus.Explanation;
 
     public event PropertyChangedEventHandler? PropertyChanged;

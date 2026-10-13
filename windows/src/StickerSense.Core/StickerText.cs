@@ -58,7 +58,10 @@ public static partial class StickerText
     /// Pass <paramref name="label"/> only when the label is about a sticker (<see cref="LabelClassifier.ChromeLabel"/>).
     /// </summary>
     public static string TextOf(IEnumerable<OcrLine> lines, string? label) =>
-        string.Join("\n", lines.Select(l => StripChrome(l.Text)).Where(t => t.Length > 0 && !IsChatChrome(t) && !IsInLabel(t, label)));
+        string.Join("\n", lines.Select(l => StripChrome(l.Text)).Where(t => t.Length > 0 && !IsChatChrome(t) && !IsInLabel(t, label) && !IsFragment(t)));
+
+    /// <summary>A stray letter or two ("V") misread from a moving caption or an edge of the picture.</summary>
+    internal static bool IsFragment(string line) => line.Count(char.IsLetterOrDigit) < 2;
 
     /// <summary>
     /// Where the chat's own text sits around the sticker (sender name, time, ticks), to be painted

@@ -197,7 +197,8 @@ public sealed class PickerSearch : IDisposable
         {
             try
             {
-                var frames = ImagePrep.LoadFrames(path, maxFrames: 8);
+                // Up to 16 frames, so the GIF is recognised later from whichever frame the chat shows.
+                var frames = ImagePrep.LoadFrames(path, maxFrames: 16);
                 try
                 {
                     var stored = Library.Remember(frames, new Fingerprint(frames[0]), reading, "", new StickerSource.Giphy(gif.Id), gif.OriginalUrl);

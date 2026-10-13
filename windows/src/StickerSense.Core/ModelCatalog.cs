@@ -4,28 +4,62 @@ using System.Text.Json;
 
 namespace StickerSense.Core;
 
-/// <summary>Which build of Phi-3.5-vision-instruct (int4 ONNX) is installed or wanted.</summary>
+/// <summary>Which on-device model (int4 ONNX) is installed or wanted.</summary>
 public enum ModelVariant
 {
-    /// <summary>For graphics cards via DirectML (gpu/gpu-int4-rtn-block-32).</summary>
+    /// <summary>Phi-3.5-vision-instruct for graphics cards via DirectML (gpu/gpu-int4-rtn-block-32).</summary>
     DirectML,
-    /// <summary>For the processor only (cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4).</summary>
+    /// <summary>Phi-3.5-vision-instruct for the processor (cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4).</summary>
     Cpu,
+    /// <summary>
+    /// Qwen3-VL-2B-Instruct for the processor: about two and a half times as fast as Phi-3.5-vision
+    /// there (measured on an i7-11700), with descriptions as good. The default for processors.
+    /// </summary>
+    Qwen3VL2B,
 }
 
-/// <summary>Where the on-device model lives and what it consists of.</summary>
+/// <summary>Where the on-device models live and what they consist of.</summary>
 public static class ModelCatalog
 {
-    public const string Repository = "microsoft/Phi-3.5-vision-instruct-onnx";
+    public const string PhiRepository = "microsoft/Phi-3.5-vision-instruct-onnx";
+    public const string QwenRepository = "onnx-community/Qwen3-VL-2B-Instruct-ONNX";
     public const string FolderName = "phi-3.5-vision";
+    public const string QwenFolderName = "qwen3-vl-2b";
     public const string MarkerFile = "stickersense-model.json";
 
-    public static string HuggingFaceFolder(ModelVariant variant) => variant == ModelVariant.DirectML
-        ? "gpu/gpu-int4-rtn-block-32"
-        : "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4";
+    /// <summary>Every model StickerSense can use, the fast processor model first.</summary>
+    public static readonly IReadOnlyList<ModelVariant> All = [ModelVariant.Qwen3VL2B, ModelVariant.DirectML, ModelVariant.Cpu];
+
+    public static string Repository(ModelVariant variant) => variant == ModelVariant.Qwen3VL2B ? QwenRepository : PhiRepository;
+
+    public static string HuggingFaceFolder(ModelVariant variant) => variant switch
+    {
+        ModelVariant.DirectML => "gpu/gpu-int4-rtn-block-32",
+        ModelVariant.Qwen3VL2B => "onnxruntime/cpu_and_mobile/cpu-int4-rtn-block-32",
+        _ => "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4",
+    };
+
+    /// <summary>The folder (under <c>models</c>) a variant lives in. Both Phi builds share one.</summary>
+    public static string LocalFolder(ModelVariant variant) => variant == ModelVariant.Qwen3VL2B ? QwenFolderName : FolderName;
+
+    /// <summary>What to call it out loud.</summary>
+    public static string DisplayName(ModelVariant variant) => variant switch
+    {
+        ModelVariant.Qwen3VL2B => "Qwen3-VL 2B",
+        ModelVariant.DirectML => "Phi-3.5-vision for the graphics card",
+        _ => "Phi-3.5-vision for the processor",
+    };
+
+    /// <summary>The model's own name, whichever build: "Qwen3-VL 2B" or "Phi-3.5-vision".</summary>
+    public static string FamilyName(ModelVariant variant) => variant == ModelVariant.Qwen3VL2B ? "Qwen3-VL 2B" : "Phi-3.5-vision";
 
     /// <summary>Approximate download size, for the Setup window.</summary>
-    public static string ApproximateSize(ModelVariant variant) => variant == ModelVariant.DirectML ? "2.6 gigabytes" : "3.2 gigabytes";
+    public static string ApproximateSize(ModelVariant variant) => variant switch
+    {
+        ModelVariant.Qwen3VL2B => "1.4 gigabytes",
+        ModelVariant.DirectML => "2.6 gigabytes",
+        _ => "3.2 gigabytes",
+    };
 
     public static readonly IReadOnlyList<string> RequiredFiles =
     [
@@ -43,26 +77,79 @@ public static class ModelCatalog
     ];
 
     /// <summary>
-    /// Lookup order: the bundled release (<c>&lt;app folder&gt;\models\phi-3.5-vision</c>), then
-    /// the per-user download (<c>%LOCALAPPDATA%\StickerSense\models\phi-3.5-vision</c>).
+    /// Lookup order: each model's folder in the bundled release (<c>&lt;app folder&gt;\models\…</c>),
+    /// then in the per-user downloads (<c>%LOCALAPPDATA%\StickerSense\models\…</c>). The preferred
+    /// model comes first; otherwise the fast processor model (Qwen3-VL 2B), then Phi-3.5-vision.
     /// </summary>
-    public static IReadOnlyList<string> CandidateDirectories(string appDirectory, string localAppData) =>
-    [
-        Path.Combine(appDirectory, "models", FolderName),
-        UserModelDirectory(localAppData),
-    ];
+    public static IReadOnlyList<string> CandidateDirectories(string appDirectory, string localAppData, ModelVariant? preferred = null)
+    {
+        var folders = new List<string> { QwenFolderName, FolderName };
+        if (preferred is { } choice)
+        {
+            folders.Remove(LocalFolder(choice));
+            folders.Insert(0, LocalFolder(choice));
+        }
+        return folders.SelectMany(folder => new[]
+        {
+            Path.Combine(appDirectory, "models", folder),
+            Path.Combine(localAppData, "StickerSense", "models", folder),
+        }).ToList();
+    }
 
-    public static string UserModelDirectory(string localAppData) => Path.Combine(localAppData, "StickerSense", "models", FolderName);
+    /// <summary>Where Setup downloads a model to.</summary>
+    public static string UserModelDirectory(string localAppData, ModelVariant variant = ModelVariant.Qwen3VL2B) =>
+        Path.Combine(localAppData, "StickerSense", "models", LocalFolder(variant));
 
     public static string? FindInstalled(IEnumerable<string> candidates) => candidates.FirstOrDefault(IsComplete);
 
     public static bool IsComplete(string directory) =>
-        Directory.Exists(directory) && RequiredFiles.All(f => File.Exists(Path.Combine(directory, f)) && new FileInfo(Path.Combine(directory, f)).Length > 0);
+        Directory.Exists(directory)
+        && (RequiredFiles.All(f => File.Exists(Path.Combine(directory, f)) && new FileInfo(Path.Combine(directory, f)).Length > 0)
+            || (ModelType(directory) is { } type && type != "phi3v" && GenAiFilesPresent(directory)));
+
+    /// <summary>The model type named in a folder's genai_config.json ("phi3v", "qwen3_vl"…), or null.</summary>
+    public static string? ModelType(string directory)
+    {
+        var path = Path.Combine(directory, "genai_config.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            return doc.RootElement.TryGetProperty("model", out var model) && model.TryGetProperty("type", out var type) ? type.GetString() : null;
+        }
+        catch (Exception e) when (e is JsonException or IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Every model file a genai_config.json names (decoder, vision, embedding), plus the tokenizer, is there.</summary>
+    private static bool GenAiFilesPresent(string directory)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "genai_config.json")));
+            var model = doc.RootElement.GetProperty("model");
+            var files = new List<string> { "tokenizer.json" };
+            foreach (var part in new[] { "decoder", "vision", "embedding" })
+            {
+                if (model.TryGetProperty(part, out var section) && section.TryGetProperty("filename", out var name) && name.GetString() is { } file) files.Add(file);
+            }
+            return files.Count >= 4 && files.All(f => File.Exists(Path.Combine(directory, f)));
+        }
+        catch (Exception e) when (e is JsonException or IOException or KeyNotFoundException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Some files are there but not all (an interrupted download).</summary>
     public static bool IsPartial(string directory) =>
         Directory.Exists(directory) && !IsComplete(directory) &&
-        Directory.EnumerateFiles(directory).Any(f => Path.GetFileName(f).StartsWith("phi-3.5", StringComparison.OrdinalIgnoreCase));
+        Directory.EnumerateFiles(directory).Any(f =>
+            Path.GetFileName(f).StartsWith("phi-3.5", StringComparison.OrdinalIgnoreCase)
+            || f.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(f) == ".stickersense-downloading");
 
     /// <summary>The installed variant: from our marker file, else guessed (the CPU text graph is far larger).</summary>
     public static ModelVariant DetectVariant(string directory)
@@ -79,6 +166,7 @@ public static class ModelCatalog
             {
             }
         }
+        if (ModelType(directory) is "qwen3_vl") return ModelVariant.Qwen3VL2B;
         var text = new FileInfo(Path.Combine(directory, "phi-3.5-v-instruct-text.onnx"));
         return text.Exists && text.Length > 10_000_000 ? ModelVariant.Cpu : ModelVariant.DirectML;
     }
@@ -88,7 +176,7 @@ public static class ModelCatalog
         var json = JsonSerializer.Serialize(new Dictionary<string, string>
         {
             ["variant"] = variant.ToString(),
-            ["repository"] = Repository,
+            ["repository"] = Repository(variant),
             ["folder"] = HuggingFaceFolder(variant),
             ["downloadedAt"] = DateTimeOffset.UtcNow.ToString("O"),
         });
@@ -155,7 +243,7 @@ public sealed class HuggingFaceDownloader
         IReadOnlyList<RemoteFile> files;
         try
         {
-            files = await ListAsync(ModelCatalog.Repository, folder, ct).ConfigureAwait(false);
+            files = await ListAsync(ModelCatalog.Repository(variant), folder, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException e)
         {
@@ -181,7 +269,7 @@ public sealed class HuggingFaceDownloader
                 continue;
             }
             var before = done;
-            await DownloadFileAsync(file, target, bytes => progress?.Report(new DownloadProgress(before + bytes, total, name)), ct).ConfigureAwait(false);
+            await DownloadFileAsync(ModelCatalog.Repository(variant), file, target, bytes => progress?.Report(new DownloadProgress(before + bytes, total, name)), ct).ConfigureAwait(false);
             done += file.Size;
         }
         ModelCatalog.WriteMarker(destination, variant);
@@ -241,12 +329,12 @@ public sealed class HuggingFaceDownloader
         }
     }
 
-    private async Task DownloadFileAsync(RemoteFile file, string target, Action<long> report, CancellationToken ct)
+    private async Task DownloadFileAsync(string repository, RemoteFile file, string target, Action<long> report, CancellationToken ct)
     {
         var part = target + ".part";
         var offset = File.Exists(part) ? new FileInfo(part).Length : 0;
         if (offset > file.Size) offset = 0;
-        var uri = $"https://huggingface.co/{ModelCatalog.Repository}/resolve/main/{file.Path}";
+        var uri = $"https://huggingface.co/{repository}/resolve/main/{file.Path}";
         for (var attempt = 1; ; attempt++)
         {
             try

@@ -35,7 +35,7 @@ It also stays out of VoiceOver's way. It only checks the cursor after you press 
 
 - **Mac** (macOS 27 or later, Apple silicon, Apple Intelligence on). The main event: fully built, and tested by a VoiceOver user.
 - **iPhone and iPad** (iOS 27 or later, Apple Intelligence). iOS won't let apps see the screen or the VoiceOver cursor, so it works through a Back Tap or Action button shortcut that describes the stickers on screen, newest first. There's also a share sheet option, Control Center controls and the picker. It builds; it hasn't been tested on a device yet.
-- **Windows** (10 and 11, with NVDA, JAWS or Narrator). Same idea and same shortcuts with Control Alt Shift, using a bundled on-device vision model (Phi-3.5-vision). It has been installed and run on one Windows 11 PC with NVDA: it loads the model and describes a still sticker in about 10 seconds on the processor (about 25 for an animated one). Trying the shortcut, automatic descriptions and "::" by keyboard in a real chat is still to do. If you try it, please report what happens.
+- **Windows** (10 and 11, with NVDA, JAWS or Narrator). Same idea and same shortcuts with Control Alt Shift, using an on-device vision model. It has been installed and run on one Windows 11 PC with NVDA: its default model, Qwen3-VL 2B, describes a still sticker in 3 to 4 seconds on the processor, and an animated one in 5 to 7. Trying the shortcut, automatic descriptions and "::" by keyboard in a real chat is still to do. If you try it, please report what happens.
 
 ## Install on a Mac
 
@@ -92,7 +92,7 @@ Forgot them? Choose "What Can StickerSense Do?" from the menu bar menu and it wi
 
 1. **Find the item.** StickerSense asks VoiceOver, through VoiceOver's AppleScript support, where its cursor is and what it's saying. On Windows it follows UI Automation focus. On iPhone, a shortcut takes a screenshot.
 2. **Look at it.** It captures only that rectangle of the screen, plus a few more frames if anything moves.
-3. **Read and describe.** Apple's Vision framework reads the text. Apple's on-device foundation model (Phi-3.5-vision on Windows) describes the picture. For speed, it starts describing the first frame while still checking whether the sticker is animated.
+3. **Read and describe.** Apple's Vision framework reads the text. Apple's on-device foundation model (Qwen3-VL or Phi-3.5-vision on Windows) describes the picture. For speed, it starts describing the first frame while still checking whether the sticker is animated.
 4. **Speak.** The description goes to VoiceOver, so it's spoken in your voice settings and also appears on your braille display.
 
 ## Privacy

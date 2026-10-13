@@ -150,6 +150,7 @@ public class ReadingParserTests
         Assert.Equal("Cartoon cat, slides right, then winks", ReadingParser.JoinMotion("Cartoon cat", "Slides right, then winks."));
         Assert.Equal("Cartoon cat", ReadingParser.JoinMotion("Cartoon cat.", ""));
         Assert.Equal("Waves", ReadingParser.JoinMotion("", "Waves"));
+        Assert.Equal("A hand, waving", ReadingParser.JoinMotion("A hand", "is waving"));
     }
 
     [Fact]
@@ -290,6 +291,9 @@ public class ReadingParserTests
     {
         const string output = "Sure! Here's a description:\n\n**The sticker** shows a shiba dog.\n- It shrugs.\n1. People send it to say \"I don't know\".<|end|>";
         Assert.Equal("The sticker shows a shiba dog. It shrugs. People send it to say \"I don't know\".", ReadingParser.CleanDetail(output));
+        // A chatty opening goes, and a reply cut off at the token limit ends on its last whole sentence.
+        Assert.Equal("A cartoon person shrugs. They wear orange.",
+            ReadingParser.CleanDetail("I can help you with that. Let's go through the image in detail, as you requested. A cartoon person shrugs. They wear orange. The character's mouth is slightly"));
     }
 }
 
@@ -309,7 +313,7 @@ public class PromptTests
         Assert.Equal("French", StickerPrompts.LanguageName(french));
         Assert.Contains("Write your descriptions in French", StickerPrompts.DetailInstructions(french));
         var prompt = StickerPrompts.ShortPrompt(1, "", null, french);
-        Assert.Contains("and the KIND value in English", prompt);
+        Assert.Contains("Keep the labels and the KIND word in English; write the rest in French.", prompt);
     }
 
     [Fact]
@@ -317,11 +321,11 @@ public class PromptTests
     {
         var english = CultureInfo.GetCultureInfo("en-US");
         var prompt = StickerPrompts.ShortPrompt(1, "idk\nlol", "Sticker, image", english);
-        Assert.StartsWith("Describe this sticker or image.", prompt);
-        Assert.Contains("Text that OCR found on it: idk / lol", prompt);
-        Assert.Contains("The screen reader calls this item: Sticker, image", prompt);
-        Assert.Contains("Reply with exactly these two lines and nothing else:", prompt);
-        Assert.Contains("KIND: one of sticker, gif, emoji, meme, photo, illustration, text, nothing", prompt);
+        Assert.StartsWith("Describe this sticker.", prompt);
+        Assert.Contains("Words on it (from OCR): idk / lol", prompt);
+        Assert.Contains("The screen reader calls it: Sticker, image", prompt);
+        Assert.Contains("Reply with exactly these two lines:", prompt);
+        Assert.Contains("KIND: one word from sticker, gif, emoji, meme, photo, illustration, text or nothing", prompt);
         // The words come from OCR, and meaning only when it will be spoken.
         Assert.DoesNotContain("TEXT:", prompt);
         Assert.DoesNotContain("MEANING:", prompt);
@@ -335,7 +339,40 @@ public class PromptTests
         var animated = StickerPrompts.ShortPrompt(3, "", null, english);
         Assert.StartsWith("These are 3 frames, in time order, of one animated sticker or GIF.", animated);
         Assert.Contains("exactly these three lines", animated);
-        Assert.Contains("MOTION: only what moves", animated);
+        Assert.Contains("MOTION: what changes from frame to frame", animated);
+        var strip = StickerPrompts.ShortPrompt(3, "", null, english, sideBySide: true);
+        Assert.StartsWith("This picture shows 3 frames of one animated sticker or GIF side by side, in time order from left to right.", strip);
+    }
+
+    [Fact]
+    public void QuickInstructionsKeepTheRulesThatMatter()
+    {
+        var instructions = StickerPrompts.ShortInstructions(CultureInfo.GetCultureInfo("en-US"));
+        Assert.Contains("ignore chat parts", instructions);
+        Assert.Contains("only when you are sure; never name real people", instructions);
+        Assert.Contains("Never invent words", instructions);
+        Assert.True(instructions.Length < 400, $"{instructions.Length} characters");
+    }
+
+    [Fact]
+    public void QuickReadingsStopAfterTheirLines()
+    {
+        Assert.Equal((2, 30), (StickerPrompts.ShortReplyLines(false, false), StickerPrompts.ShortReplyTokens(false, false)));
+        Assert.Equal((4, 62), (StickerPrompts.ShortReplyLines(true, true), StickerPrompts.ShortReplyTokens(true, true)));
+        Assert.Equal(0, ReadingParser.CompletedLines("KIND: sticker"));
+        Assert.Equal(1, ReadingParser.CompletedLines("KIND: sticker\n\nSUBJECT: Dog"));
+        Assert.Equal(2, ReadingParser.CompletedLines("KIND: sticker\nSUBJECT: Dog\n"));
+        Assert.Equal(2, ReadingParser.CompletedSentences("A dog. It shrugs! People send it"));
+        Assert.Equal(1, ReadingParser.CompletedSentences("It says \"hi.\" Then"));
+        Assert.Equal(3, ReadingParser.LastLineWords("KIND: emoji\nSUBJECT: party face"));
+    }
+
+    [Fact]
+    public void ReadingsKeepToTheirWordLimits()
+    {
+        var reading = ReadingParser.Parse("KIND: gif\nSUBJECT: Waving hand\nMOTION: moves back and forth, fingers spread, waves back and forth, then stops, then waves again", true, "");
+        Assert.Equal("Waving hand, moves back and forth, fingers spread, waves back and forth", reading.Subject);
+        Assert.Equal("one two three four five six seven eight nine ten eleven twelve", ReadingParser.Limit("one two three four five six seven eight nine ten eleven twelve thirteen", 12));
     }
 
     [Fact]
@@ -347,7 +384,7 @@ public class PromptTests
     {
         var prompt = StickerPrompts.DetailPrompt(1, "yay 4:05", null, new StickerReading(StickerKind.Sticker, "Party popper"));
         Assert.Equal(
-            "Describe this sticker or image in detail.\nText that OCR found in the picture (may include chat timestamps to ignore): yay 4:05\nA quick first look said: Party popper. Correct it if it was wrong.",
+            "Describe this sticker or image in detail.\nText that OCR found in the picture (may include chat timestamps to ignore): yay 4:05\nFor reference, a quick first look said: Party popper.",
             prompt.ReplaceLineEndings("\n"));
     }
 

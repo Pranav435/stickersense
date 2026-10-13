@@ -1,14 +1,15 @@
 <#
 .SYNOPSIS
-    Builds the "bundled" StickerSense release: a self-contained publish of the app with the
-    Phi-3.5-vision ONNX model downloaded into models\phi-3.5-vision next to StickerSense.exe.
+    Builds the "bundled" StickerSense release: a self-contained publish of the app with an ONNX
+    description model downloaded into its models folder next to StickerSense.exe.
 
 .DESCRIPTION
     Run from any folder on Windows with the .NET 8 SDK installed:
 
         powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1
 
-    The model is about 2.6 GB (graphics card build) or 3.2 GB (processor build). Files already
+    The model is about 1.4 GB (Qwen3-VL 2B, the fast processor model and the default), 2.6 GB
+    (Phi-3.5-vision for graphics cards) or 3.2 GB (Phi-3.5-vision for the processor). Files already
     downloaded are kept, so running the script again resumes rather than starting over.
     Output is plain text with no progress bars, so it reads well with a screen reader.
 
@@ -16,7 +17,9 @@
     win-x64 (default) or win-arm64.
 
 .PARAMETER Variant
-    DirectML (default; graphics card, falls back to the processor) or Cpu (processor only).
+    Qwen (default: Qwen3-VL 2B, the fast model for processors), DirectML (Phi-3.5-vision for
+    graphics cards with their own memory; falls back to the processor) or Cpu (Phi-3.5-vision for
+    the processor).
 
 .PARAMETER Output
     Folder for the release. Default: windows\publish\StickerSense-<Runtime>.
@@ -40,8 +43,8 @@ param(
     [ValidateSet('win-x64', 'win-arm64')]
     [string] $Runtime = 'win-x64',
 
-    [ValidateSet('DirectML', 'Cpu')]
-    [string] $Variant = 'DirectML',
+    [ValidateSet('Qwen', 'DirectML', 'Cpu')]
+    [string] $Variant = 'Qwen',
 
     [string] $Output,
 
@@ -62,9 +65,18 @@ $project = Join-Path $windowsRoot 'src\StickerSense.App\StickerSense.App.csproj'
 if (-not $Output) { $Output = Join-Path $windowsRoot "publish\StickerSense-$Runtime" }
 $Output = [System.IO.Path]::GetFullPath($Output)
 
-$repository = 'microsoft/Phi-3.5-vision-instruct-onnx'
-$folder = if ($Variant -eq 'DirectML') { 'gpu/gpu-int4-rtn-block-32' } else { 'cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4' }
-$modelDir = Join-Path $Output 'models\phi-3.5-vision'
+if ($Variant -eq 'Qwen') {
+    $repository = 'onnx-community/Qwen3-VL-2B-Instruct-ONNX'
+    $folder = 'onnxruntime/cpu_and_mobile/cpu-int4-rtn-block-32'
+    $modelDir = Join-Path $Output 'models\qwen3-vl-2b'
+    $variantName = 'Qwen3VL2B'
+}
+else {
+    $repository = 'microsoft/Phi-3.5-vision-instruct-onnx'
+    $folder = if ($Variant -eq 'DirectML') { 'gpu/gpu-int4-rtn-block-32' } else { 'cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4' }
+    $modelDir = Join-Path $Output 'models\phi-3.5-vision'
+    $variantName = $Variant
+}
 
 function Say([string] $message) { Write-Host $message }
 
@@ -120,7 +132,7 @@ if (-not $SkipModel) {
     $marker = Join-Path $modelDir 'stickersense-model.json'
     if (Test-Path $marker) {
         $existing = (Get-Content $marker -Raw | ConvertFrom-Json).variant
-        if ($existing -and $existing -ne $Variant) {
+        if ($existing -and $existing -ne $variantName) {
             Say "Removing the $existing model files to make room for the $Variant build."
             Get-ChildItem $modelDir -File | Remove-Item -Force
         }
@@ -158,7 +170,7 @@ if (-not $SkipModel) {
     }
 
     @{
-        variant      = $Variant
+        variant      = $variantName
         repository   = $repository
         folder       = $folder
         downloadedAt = (Get-Date).ToUniversalTime().ToString('o')

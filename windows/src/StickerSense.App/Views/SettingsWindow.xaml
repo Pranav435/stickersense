@@ -40,11 +40,16 @@
                         <CheckBox Content="_Type two colons (::) in a chat to open the sticker picker" IsChecked="{Binding Settings.ColonTrigger}"
                                   AutomationProperties.HelpText="The colons are replaced by the sticker you pick. Press Escape to keep them as typed." />
                         <TextBlock Margin="24,0,0,4" TextWrapping="Wrap" Text="The colons are replaced by the sticker you pick. Press Escape to keep them as typed." />
-                        <Label Content="_Run the description model on" Target="{Binding ElementName=DeviceBox}" />
+                        <Label Content="Description _model" Target="{Binding ElementName=ModelBox}" />
+                        <ComboBox x:Name="ModelBox" ItemsSource="{Binding Models}" DisplayMemberPath="Title" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Settings.PreferredModel}"
+                                  AutomationProperties.Name="Description model"
+                                  AutomationProperties.HelpText="Which installed model describes stickers. Qwen3-VL 2B is about two and a half times as fast on a processor. Setup downloads others." />
+                        <Label Content="_Run Phi-3.5-vision on" Target="{Binding ElementName=DeviceBox}" />
                         <ComboBox x:Name="DeviceBox" ItemsSource="{Binding Devices}" DisplayMemberPath="Title" SelectedValuePath="Value"
                                   SelectedValue="{Binding Settings.EngineDevice}"
-                                  AutomationProperties.Name="Run the description model on"
-                                  AutomationProperties.HelpText="Everything stays on this computer either way. The graphics card is usually much faster." />
+                                  AutomationProperties.Name="Run Phi-3.5-vision on"
+                                  AutomationProperties.HelpText="Only for Phi-3.5-vision; the fast model always runs on the processor. Everything stays on this computer either way." />
                         <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding EngineSummary}" />
                     </StackPanel>
                 </GroupBox>

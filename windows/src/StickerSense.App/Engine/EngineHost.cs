@@ -17,9 +17,21 @@ namespace StickerSense.App.Engine;
 /// </remarks>
 internal static class EngineHost
 {
-    private sealed record Work(byte Type, int Id, Core.VisionRequest? Request, string Directory = "", bool TryGraphicsCard = false, string WarmUp = "");
+    private sealed record Work(byte Type, int Id, Core.VisionRequest? Request, EngineLoadOptions? Load = null);
 
     public static int Run()
+    {
+        // Main is an STA thread (WPF needs that), but the image decoder GenAI uses for some models
+        // initialises COM for a multithreaded apartment: work on an MTA thread instead.
+        var exit = 0;
+        var worker = new Thread(() => exit = Serve()) { Name = "engine" };
+        worker.SetApartmentState(ApartmentState.MTA);
+        worker.Start();
+        worker.Join();
+        return exit;
+    }
+
+    private static int Serve()
     {
         var input = new BinaryReader(Console.OpenStandardInput());
         var output = new BinaryWriter(Console.OpenStandardOutput());
@@ -53,7 +65,7 @@ internal static class EngineHost
                     switch (type)
                     {
                         case EngineProtocol.Load:
-                            work.Add(new Work(type, 0, null, input.ReadString(), input.ReadBoolean(), input.ReadString()));
+                            work.Add(new Work(type, 0, null, EngineLoadOptions.Read(input)));
                             break;
                         case EngineProtocol.Generate:
                             var (id, request) = EngineProtocol.ReadRequest(input);
@@ -80,7 +92,7 @@ internal static class EngineHost
         reader.Start();
 
         using var oga = new OgaHandle();
-        PhiModel? model = null;
+        IEngineModel? model = null;
         foreach (var item in work.GetConsumingEnumerable())
         {
             if (item.Type == EngineProtocol.Load)
@@ -89,7 +101,7 @@ internal static class EngineHost
                 model = null;
                 try
                 {
-                    model = PhiModel.Load(item.Directory, item.TryGraphicsCard, item.WarmUp, Log);
+                    model = IEngineModel.Load(item.Load!, Log);
                     var loaded = model;
                     Send(w => { w.Write(EngineProtocol.Loaded); w.Write(true); w.Write(loaded.RunningOn); w.Write(loaded.UsesGraphicsCard); w.Write(""); });
                 }

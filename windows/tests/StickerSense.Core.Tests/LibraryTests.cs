@@ -174,18 +174,18 @@ public class LibraryTests
     public void ReadsAndWritesTheSwiftJsonFormat()
     {
         const string swiftJson = """
-        [{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","fingerprint":{"dHash":[1,2,3,18446744073709551615],"thumb":{"rgb":"AAEC"}},
+        [{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","fingerprint":{"dHash":[1,2,3,18446744073709551615],"thumb":{"rgb":"AAEC////"}},
           "reading":{"kind":"gif","subject":"Cat waves","text":"hi!","vibe":"hello","animated":true},"ocrText":"hi!",
           "source":{"received":{"app":"net.whatsapp.WhatsApp"}},"imageFile":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F.gif",
           "addedAt":"2026-10-12T16:03:00Z","lastSeenAt":"2026-10-12T16:04:00Z","timesSeen":2,"timesSent":1},
-         {"id":"0B5C8D6E-1111-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":""}},
+         {"id":"0B5C8D6E-1111-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":"AAEC////"}},
           "ocrText":"","source":{"whatsApp":{"relativePath":"~/Library/x.webp"}},"imageFile":"x.webp",
           "addedAt":"2026-10-12T16:05:00Z","lastSeenAt":"2026-10-12T16:05:00Z","timesSeen":0,"timesSent":0},
-         {"id":"0B5C8D6E-2222-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":""}},
+         {"id":"0B5C8D6E-2222-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":"AAEC////"}},
           "reading":{"kind":"sticker","subject":"Dog","text":"","vibe":"","animated":false},"detailed":"A dog.","ocrText":"",
           "source":{"giphy":{"id":"abc"}},"remoteURL":"https://media.giphy.com/media/abc/giphy.gif",
           "addedAt":"2026-10-12T16:06:00Z","lastSeenAt":"2026-10-12T16:06:00Z","timesSeen":1,"timesSent":4},
-         {"id":"0B5C8D6E-3333-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":""}},
+         {"id":"0B5C8D6E-3333-4A2B-9C3D-445566778899","fingerprint":{"dHash":[0,0,0,0],"thumb":{"rgb":"AAEC////"}},
           "ocrText":"","source":{"imported":{}},
           "addedAt":"2026-10-12T16:07:00Z","lastSeenAt":"2026-10-12T16:07:00Z","timesSeen":0,"timesSent":0}]
         """;
@@ -199,7 +199,7 @@ public class LibraryTests
         Assert.Equal(new StickerSource.Received("net.whatsapp.WhatsApp"), cat.Source);
         Assert.Equal("WhatsApp", cat.Source.DisplayName);
         Assert.Equal(ulong.MaxValue, cat.Fingerprint.DHash[3]);
-        Assert.Equal(new byte[] { 0, 1, 2 }, cat.Fingerprint.Thumb.Rgb);
+        Assert.Equal(new byte[] { 0, 1, 2, 255, 255, 255 }, cat.Fingerprint.Thumb.Rgb);
         Assert.Equal(new DateTimeOffset(2026, 10, 12, 16, 3, 0, TimeSpan.Zero), cat.AddedAt);
         Assert.IsType<StickerSource.WhatsApp>(library.Record(Guid.Parse("0B5C8D6E-1111-4A2B-9C3D-445566778899"))!.Source);
         var gif = library.Record(Guid.Parse("0B5C8D6E-2222-4A2B-9C3D-445566778899"))!;
@@ -216,7 +216,7 @@ public class LibraryTests
         Assert.Contains("\"source\":{\"whatsApp\":{\"relativePath\":\"~/Library/x.webp\"}}", written);
         Assert.Contains("\"addedAt\":\"2026-10-12T16:03:00Z\"", written);
         Assert.Contains("\"dHash\":[1,2,3,18446744073709551615]", written);
-        Assert.Contains("\"thumb\":{\"rgb\":\"AAEC\"}", written);
+        Assert.Contains("\"thumb\":{\"rgb\":\"AAEC////\"}", written);
         Assert.Contains("\"remoteURL\":\"https://media.giphy.com/media/abc/giphy.gif\"", written);
         Assert.Contains("\"kind\":\"gif\"", written);
         Assert.DoesNotContain("\"detailed\":null", written);

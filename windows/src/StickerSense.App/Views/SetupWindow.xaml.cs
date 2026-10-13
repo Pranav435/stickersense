@@ -81,13 +81,17 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
 
     public string PracticeHint => $"Press {DescribeShortcut} to hear it described.";
 
-    public ModelVariant Recommended => gpu is not null && GpuInfo.IsWorthUsing(gpu) ? ModelVariant.DirectML : ModelVariant.Cpu;
+    /// <summary>A graphics card with memory of its own runs Phi-3.5-vision fastest; otherwise the fast processor model.</summary>
+    public ModelVariant Recommended => gpu is not null && GpuInfo.IsWorthUsing(gpu) ? ModelVariant.DirectML : ModelVariant.Qwen3VL2B;
+
+    public string FastDownloadTitle =>
+        $"Download the _fast model, Qwen3-VL 2B, for the processor ({ModelCatalog.ApproximateSize(ModelVariant.Qwen3VL2B)}){(Recommended == ModelVariant.Qwen3VL2B ? ", recommended" : "")}";
 
     public string GpuDownloadTitle =>
-        $"Download for the _graphics card ({ModelCatalog.ApproximateSize(ModelVariant.DirectML)}){(Recommended == ModelVariant.DirectML ? ", recommended" : "")}";
+        $"Download Phi-3.5-vision for the _graphics card ({ModelCatalog.ApproximateSize(ModelVariant.DirectML)}){(Recommended == ModelVariant.DirectML ? ", recommended" : "")}";
 
     public string CpuDownloadTitle =>
-        $"Download for the _processor only ({ModelCatalog.ApproximateSize(ModelVariant.Cpu)}){(Recommended == ModelVariant.Cpu ? ", recommended" : "")}";
+        $"Download Phi-3.5-vision for the _processor ({ModelCatalog.ApproximateSize(ModelVariant.Cpu)})";
 
     public bool Downloading => download is not null;
     public int DownloadPercent => downloadPercent;
@@ -131,14 +135,14 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
         }
         var status = app.EngineStatus;
         var recommendation = gpu is null
-            ? "This computer has no graphics card StickerSense can use, so get the processor model."
+            ? "This computer has no graphics card StickerSense can use, so get the fast model for the processor."
             : GpuInfo.IsWorthUsing(gpu)
-                ? $"Your graphics card ({gpu.Name.Trim()}) can run the graphics card model, which is faster."
-                : $"Your graphics ({gpu.Name.Trim()}) are built in and share the computer's memory, so the processor model is faster here. Get the processor model.";
+                ? $"Your graphics card ({gpu.Name.Trim()}) can run the graphics card model, which is fastest here."
+                : $"Your graphics ({gpu.Name.Trim()}) are built in and share the computer's memory, so a model on the processor is faster here. Get the fast model.";
         switch (status.State)
         {
             case EngineState.Ready:
-                Model.Update(CheckState.Done, $"The on-device model is ready, running on {app.Describer.RunningOn ?? "this computer"}.");
+                Model.Update(CheckState.Done, $"The on-device model{ModelName()} is ready, running on {app.Describer.RunningOn ?? "this computer"}.");
                 break;
             case EngineState.NotLoaded:
             case EngineState.Loading:
@@ -155,6 +159,10 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
                 break;
         }
     }
+
+    /// <summary>", Qwen3-VL 2B," or similar, for the status line.</summary>
+    private string ModelName() =>
+        app.Describer.ModelDirectory is { } directory ? $", {ModelCatalog.FamilyName(ModelCatalog.DetectVariant(directory))}," : "";
 
     private void RefreshScreenReader()
     {
@@ -191,8 +199,7 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
         milestones.Reset();
         Changed(nameof(Downloading), nameof(DownloadPercent), nameof(CanDownload));
         RefreshModel();
-        var where = variant == ModelVariant.DirectML ? "the graphics card" : "the processor";
-        app.Announcer.Say($"Downloading the model for {where}, about {ModelCatalog.ApproximateSize(variant)}. You can keep using your computer. I'll announce every 10 percent.");
+        app.Announcer.Say($"Downloading {ModelCatalog.DisplayName(variant)}, about {ModelCatalog.ApproximateSize(variant)}. You can keep using your computer. I'll announce every 10 percent.");
         var progress = new Progress<DownloadProgress>(p =>
         {
             downloadPercent = p.Percent;
@@ -287,6 +294,8 @@ internal partial class SetupWindow : Window
             model.Detach();
         };
     }
+
+    private async void DownloadFast_Click(object sender, RoutedEventArgs e) => await model.DownloadAsync(ModelVariant.Qwen3VL2B);
 
     private async void DownloadGpu_Click(object sender, RoutedEventArgs e) => await model.DownloadAsync(ModelVariant.DirectML);
 

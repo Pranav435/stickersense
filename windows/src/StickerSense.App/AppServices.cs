@@ -72,10 +72,18 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
 
     /// <summary>Bundled release first (<c>&lt;app&gt;\models</c>), then the per-user download.</summary>
     public IReadOnlyList<string> ModelDirectories() =>
-        ModelCatalog.CandidateDirectories(AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        ModelCatalog.CandidateDirectories(AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Settings.PreferredModel);
 
-    public string UserModelDirectory =>
-        ModelCatalog.UserModelDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+    public static string UserModelDirectory(ModelVariant variant) =>
+        ModelCatalog.UserModelDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), variant);
+
+    /// <summary>The models installed in either the release folder or the downloads, fast one first.</summary>
+    public IReadOnlyList<ModelVariant> InstalledModels() =>
+        ModelCatalog.CandidateDirectories(AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))
+            .Where(ModelCatalog.IsComplete)
+            .Select(ModelCatalog.DetectVariant)
+            .Distinct()
+            .ToList();
 
     public void ApplySettings()
     {
@@ -83,7 +91,7 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
         Earcons.IsEnabled = Settings.Earcons;
         Earcons.Volume = Settings.EarconVolume;
         Announcer.Output = Settings.SpeechOutput;
-        if (Settings.EngineDevice != Describer.Device)
+        if (Settings.EngineDevice != Describer.Device || (Describer.LoadedDirectory is { } loaded && loaded != Describer.ModelDirectory))
         {
             Describer.Reload(Settings.EngineDevice);
             _ = PrewarmAsync();
@@ -123,9 +131,12 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
 
     public async Task DownloadModelAsync(ModelVariant variant, IProgress<DownloadProgress> progress, CancellationToken ct)
     {
-        Log.Add($"Downloading the {variant} model to {UserModelDirectory}");
-        await new HuggingFaceDownloader().DownloadAsync(variant, UserModelDirectory, progress, ct);
+        var destination = UserModelDirectory(variant);
+        Log.Add($"Downloading the {variant} model to {destination}");
+        await new HuggingFaceDownloader().DownloadAsync(variant, destination, progress, ct);
         Describer.Reload(Settings.EngineDevice);
+        // The model just downloaded is the one wanted (after the reload, so it isn't reloaded twice).
+        Settings.PreferredModel = variant;
         _ = PrewarmAsync();
     }
 

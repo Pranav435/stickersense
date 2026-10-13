@@ -88,6 +88,8 @@ public sealed class DescribeController
     private CancellationTokenSource? autoPending;
     private CancellationTokenSource? afterQuiet;
     private FocusTarget? lastAutoTarget;
+    /// <summary>Focus has visited another item since the last description was spoken.</summary>
+    private bool movedAwaySinceLastSpoken = true;
     private FocusTarget? latestFocus;
     private DateTimeOffset quietUntil = DateTimeOffset.MinValue;
     private DateTimeOffset? lastEngineWarning;
@@ -128,6 +130,9 @@ public sealed class DescribeController
 
     /// <summary>While a description takes long, a blip this often (and "Still working" once, at the third).</summary>
     public TimeSpan WorkingBlipInterval { get; init; } = TimeSpan.FromMilliseconds(2200);
+
+    /// <summary>Said when the shortcut lands on a blank (one-colour) area.</summary>
+    public const string NothingVisibleMessage = "There's nothing visible there to describe.";
 
     public const string TooLargeMessage =
         "Focus is on a large area, like a whole chat or window. Move focus onto the sticker, then press the shortcut again.";
@@ -178,7 +183,8 @@ public sealed class DescribeController
             Fail(e);
             return;
         }
-        log.Add($"Shortcut on: {(target.Text.Length == 0 ? "(no name)" : target.Text)} {target.Bounds}");
+        // Only sticker and GIF labels go in the log — never a text message's words.
+        log.Add($"Shortcut on: {LoggableLabel(target)} {target.Bounds}");
 
         if (job is { } running)
         {
@@ -215,6 +221,10 @@ public sealed class DescribeController
     public void FocusChanged(FocusTarget target)
     {
         latestFocus = target;
+        // Focus visited another item: coming back to the last one should speak it again. The same
+        // element raising focus again, or its name changing, isn't leaving it.
+        if (last is { } previous && !IsSameElement(previous.Target, target)) movedAwaySinceLastSpoken = true;
+        if (lastAutoTarget is not null && !IsSameElement(lastAutoTarget, target)) lastAutoTarget = null;
         if (!settings.AutoDescribe) return;
         // Right after an app switch the screen reader is busiest: don't start anything.
         if (clock.GetUtcNow() < quietUntil) return;
@@ -284,8 +294,9 @@ public sealed class DescribeController
         // (The accessible name alone: the role text is always there and says nothing about stickers.)
         var ambiguous = verdict == StickerVerdict.NotSticker && LabelClassifier.IsAmbiguous(target.Name);
         if (verdict == StickerVerdict.NotSticker && !ambiguous) return;
-        // Don't repeat ourselves if we just spoke about exactly this item, or are already on something.
-        if (last is { } previous && previous.Target.IsLikelySameItem(target) && clock.GetUtcNow() - previous.At < TimeSpan.FromSeconds(20)) return;
+        // Don't repeat ourselves while focus stays on the item we just spoke about. Coming back to it
+        // after visiting another item speaks it again (instantly, from the library).
+        if (last is { } previous && IsSameElement(previous.Target, target) && !movedAwaySinceLastSpoken) return;
         if (job is not null) return;
 
         var cts = autoPending = new CancellationTokenSource();
@@ -354,11 +365,42 @@ public sealed class DescribeController
             var rect = target.Bounds;
             var first = await capturer.CaptureAsync(rect, ct);
             frames = [first];
+            // A flat, empty capture (blank or protected screen area): nothing to describe.
+            if (ImagePrep.IsBlank(first))
+            {
+                log.Add($"Blank capture at {rect}, not describing");
+                if (!auto) Fail(NothingVisibleMessage);
+                return;
+            }
             var context = new DescriptionContext.ScreenItem(target.Text.Length == 0 ? null : target.Text);
             var probe = await pipeline.ProbeAsync(first, context, ct);
             var source = new StickerSource.Received(target.AppName.Length == 0 ? "unknown" : target.AppName);
             StickerRecord record;
-            if (probe.Cached is not null)
+            // "Your GIF" / "Your sticker": probably something sent from the picker, which already has a
+            // good description made from the original file. Checked before the cache: that beats a
+            // description made from a chat's paused preview.
+            var recentlySent = IsOwnItem(target.Text) ? pipeline.Library.MatchRecentlySent(probe.Fingerprint) : null;
+            // A GIF StickerSense already described with its motion, showing its paused preview now.
+            var knownGif = recentlySent is null && probe.Cached is null && (verdict ?? StickerDetector.Verdict(target)) == StickerVerdict.Gif
+                ? pipeline.Library.MatchAnimationFrame(probe.Fingerprint)
+                : null;
+            if (recentlySent is { Reading: not null })
+            {
+                log.Add("Recognised as something you sent");
+                record = recentlySent;
+                var masked = StickerPipeline.Mask(frames, probe);
+                DisposeAll(frames);
+                frames = masked;
+            }
+            else if (knownGif is { Reading: not null })
+            {
+                log.Add("Recognised this GIF from an earlier view");
+                record = knownGif;
+                var masked = StickerPipeline.Mask(frames, probe);
+                DisposeAll(frames);
+                frames = masked;
+            }
+            else if (probe.Cached is not null)
             {
                 // Seen before: paint out the sender's name and time, and answer from the cache.
                 var masked = StickerPipeline.Mask(frames, probe);
@@ -397,7 +439,8 @@ public sealed class DescribeController
             }
             var text = SpokenText.Short(reading, settings.IncludeMeaning);
             var seconds = clock.GetElapsedTime(started).TotalSeconds;
-            log.Add($"{(auto ? "Auto" : "Short")} in {seconds:0.00}s{(probe.Cached is not null ? " (cached)" : "")} [{frames.Count} frame(s)]: {text}");
+            var cached = probe.Cached is not null || recentlySent is { Reading: not null } || knownGif is { Reading: not null };
+            log.Add($"{(auto ? "Auto" : "Short")} in {seconds:0.00}s{(cached ? " (cached)" : "")} [{frames.Count} frame(s)]: {text}");
             Speak(text, interrupt: requested, chime: true);
             // A press for the detail usually follows within seconds: get it ready now.
             _ = PrewarmDetailAsync();
@@ -473,6 +516,13 @@ public sealed class DescribeController
             var masked = StickerPipeline.Mask(captured, probe);
             try
             {
+                // An animation StickerSense already knows (e.g. a GIF you sent from the picker),
+                // recognised from whichever frames the chat is showing: use its description.
+                if (masked.Count > 1 && pipeline.Library.MatchAnimated(masked.Select(f => new Fingerprint(f)).ToList()) is { Reading: not null } known)
+                {
+                    log.Add("Recognised animation from its frames");
+                    return (masked, known);
+                }
                 return (masked, await pipeline.DescribeAsync(masked, probe, context, source, ct: ct));
             }
             catch
@@ -496,6 +546,10 @@ public sealed class DescribeController
             }
         }
     }
+
+    /// <summary>WhatsApp labels the user's own messages "Your GIF, …" or "Your sticker, …".</summary>
+    internal static bool IsOwnItem(string label) =>
+        LabelClassifier.Clean(label).TrimStart().StartsWith("your ", StringComparison.Ordinal);
 
     private static async Task IgnoringFailure(Task? task)
     {
@@ -554,7 +608,18 @@ public sealed class DescribeController
     {
         if (last is { } previous && !ReferenceEquals(previous.Frames, spoken.Frames)) DisposeAll(previous.Frames);
         last = spoken;
+        movedAwaySinceLastSpoken = false;
     }
+
+    /// <summary>The same element: same label and size (perhaps scrolled), or the same spot with a new name.</summary>
+    private static bool IsSameElement(FocusTarget a, FocusTarget b) =>
+        a.IsLikelySameItem(b)
+        || (Math.Abs(a.Bounds.CenterX - b.Bounds.CenterX) < 3 && Math.Abs(a.Bounds.CenterY - b.Bounds.CenterY) < 3
+            && Math.Abs(a.Bounds.Width - b.Bounds.Width) < 4 && Math.Abs(a.Bounds.Height - b.Bounds.Height) < 4);
+
+    /// <summary>The label, when it says sticker or GIF; otherwise a placeholder, so a message's words never reach the log.</summary>
+    private static string LoggableLabel(FocusTarget target) =>
+        target.Text.Length == 0 ? "(no name)" : StickerDetector.Verdict(target) != StickerVerdict.NotSticker ? target.Text : "(not a sticker label)";
 
     /// <summary>
     /// Feedback while waiting: a soft blip after a moment (skipped for instant cache hits), then a

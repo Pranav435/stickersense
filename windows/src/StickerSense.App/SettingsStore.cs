@@ -27,6 +27,8 @@ internal sealed class SettingsStore : INotifyPropertyChanged, IDescribeSettings
         public bool IncludeMeaning { get; init; }
         public SpeechOutput SpeechOutput { get; init; } = SpeechOutput.ScreenReader;
         public EngineDevice EngineDevice { get; init; } = EngineDevice.Automatic;
+        /// <summary>Which installed model to use; null = the fast processor model when it's there.</summary>
+        public ModelVariant? PreferredModel { get; init; }
         public string DescribeKey { get; init; } = "D";
         public string PickerKey { get; init; } = "S";
         public string HistoryKey { get; init; } = "H";
@@ -73,6 +75,7 @@ internal sealed class SettingsStore : INotifyPropertyChanged, IDescribeSettings
     public bool IncludeMeaning { get => values.IncludeMeaning; set => Update(values with { IncludeMeaning = value }); }
     public SpeechOutput SpeechOutput { get => values.SpeechOutput; set => Update(values with { SpeechOutput = value }); }
     public EngineDevice EngineDevice { get => values.EngineDevice; set => Update(values with { EngineDevice = value }); }
+    public ModelVariant? PreferredModel { get => values.PreferredModel; set => Update(values with { PreferredModel = value }); }
     public string DescribeKey { get => values.DescribeKey; set => Update(values with { DescribeKey = value }, hotkeys: true); }
     public string PickerKey { get => values.PickerKey; set => Update(values with { PickerKey = value }, hotkeys: true); }
     public string HistoryKey { get => values.HistoryKey; set => Update(values with { HistoryKey = value }, hotkeys: true); }
