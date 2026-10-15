@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import StickerKit
 
@@ -6,6 +7,24 @@ import StickerKit
 /// it took. For testing the sticker maker and for bug reports; it doesn't touch the library.
 @MainActor
 enum MakeStickerCommand {
+    /// `StickerSense --whatsapp-sticker file.png`: sends the file as a sticker in the WhatsApp chat
+    /// that's open, the way the picker does. For testing on a real chat.
+    static func sendToWhatsApp(_ args: [String]) async -> Int32 {
+        guard let i = args.firstIndex(of: "--whatsapp-sticker"), i + 1 < args.count else { return 64 }
+        let file = URL(fileURLWithPath: args[i + 1])
+        // The sticker maker's steps activate apps, which needs an application object.
+        NSApplication.shared.setActivationPolicy(.accessory)
+        guard let whatsApp = NSRunningApplication.runningApplications(withBundleIdentifier: WhatsAppSticker.bundleIdentifier).first else {
+            print("WhatsApp isn't running.")
+            return 2
+        }
+        print("Qualifies as a sticker:", WhatsAppSticker.qualifies(file))
+        let started = Date()
+        let outcome = await WhatsAppSticker.send(file, in: whatsApp, replacing: 0)
+        print(String(format: "%@ in %.1fs", String(describing: outcome), Date().timeIntervalSince(started)))
+        return outcome == .sent ? 0 : 1
+    }
+
     static func run(_ args: [String]) async -> Int32 {
         func value(_ name: String) -> String? {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }

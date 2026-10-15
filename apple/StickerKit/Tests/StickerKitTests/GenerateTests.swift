@@ -136,6 +136,19 @@ struct GenerateTests {
         #expect(pixels.alpha(256, 256) > 200)
     }
 
+    @Test func webpKeepsTransparencyAndFitsWhatsApp() throws {
+        let art = try #require(StickerArt.compose(Self.disc(size: 300, color: CGColor(red: 0.2, green: 0.7, blue: 0.3, alpha: 1)), caption: "yay"))
+        let data = try ImagePrep.webpData(art)
+        #expect(data.count < 100_000)
+        #expect(data.prefix(4) == Data("RIFF".utf8))
+        let decoded = try #require(ImagePrep.frames(from: data, maxFrames: 1).first)
+        #expect(decoded.width == 512 && decoded.height == 512)
+        let pixels = Self.pixels(decoded)
+        #expect(pixels.alpha(0, 0) == 0, "transparent corner")
+        let centre = pixels.rgba(256, 200)
+        #expect(centre.a == 255 && centre.g > 140 && centre.r < 90, "the green subject")
+    }
+
     // MARK: Library
 
     @Test func generatedSourceRoundTripsInTheSharedFormat() throws {

@@ -156,7 +156,7 @@ Typing two colons only opens the picker in chat apps and browsers (or every app,
 3. In the list, press Enter to paste the sticker you're on.
 4. GIPHY results come 50 at a time. The last row, "More GIPHY results", loads the next 50 when you press Enter on it; StickerSense also loads more on its own as you get near the end of the list.
 
-StickerSense pastes into your chat and says "Pasted into WhatsApp. Press Enter to send." It never presses Enter for you.
+StickerSense pastes into your chat and says "Pasted into WhatsApp. Press Enter to send." It never presses Enter for you. WhatsApp sends a pasted sticker as a photo; on a Mac, StickerSense sends it through WhatsApp's own sticker maker instead, and that is still to come on Windows.
 
 More actions in the list:
 

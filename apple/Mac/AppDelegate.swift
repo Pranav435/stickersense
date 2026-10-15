@@ -6,6 +6,10 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static func main() {
+        if CommandLine.arguments.contains("--whatsapp-sticker") {
+            Task { @MainActor in exit(await MakeStickerCommand.sendToWhatsApp(CommandLine.arguments)) }
+            dispatchMain()
+        }
         if CommandLine.arguments.contains("--make-sticker") {
             Task { @MainActor in exit(await MakeStickerCommand.run(CommandLine.arguments)) }
             dispatchMain()

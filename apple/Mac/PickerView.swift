@@ -244,6 +244,32 @@ final class PickerModel {
             }
             let target = targetApp
             close()
+            // WhatsApp makes anything pasted a photo: still stickers go through its own sticker maker.
+            if let target, WhatsAppSticker.isWhatsApp(target), WhatsAppSticker.qualifies(file) {
+                app.earcons.play(.working)
+                app.announcer.say("Sending it as a WhatsApp sticker.", interrupt: true)
+                switch await WhatsAppSticker.send(file, in: target, replacing: charactersToReplace) {
+                case .sent:
+                    app.log.add("Picker: sent as a WhatsApp sticker")
+                    app.earcons.play(.tick)
+                    app.announcer.say("Sent as a sticker.")
+                    await search.markSent(item)
+                    app.refreshCounts()
+                    return
+                case .failed(let why, let typedRemoved):
+                    app.log.add("Picker: WhatsApp sticker failed (\(why)); pasting it as a picture")
+                    let outcome = await Paster.paste(fileURL: file, into: target, replacing: typedRemoved ? 0 : charactersToReplace)
+                    app.earcons.play(.failed)
+                    if case .pasted = outcome {
+                        app.announcer.say("Couldn't send it as a sticker: \(why). Pasted it as a picture instead. Press Return to send, or Command Z to undo.")
+                    } else if case .copiedOnly(let reason) = outcome {
+                        app.announcer.say("Couldn't send it as a sticker: \(why). \(reason)")
+                    }
+                    await search.markSent(item)
+                    app.refreshCounts()
+                    return
+                }
+            }
             let outcome = await Paster.paste(fileURL: file, into: target, replacing: charactersToReplace)
             app.earcons.play(.tick)
             switch outcome {
