@@ -64,20 +64,47 @@ public enum StickerIdeas {
         let (picturePart, quoted) = splitQuoted(query)
         var caption = quoted ?? caption.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"“”'")))
         if ["none", "empty", "n/a", "-", "no caption"].contains(caption.lowercased()) { caption = "" }
+        let queryWords = words(query)
         var seen = Set<String>()
         var kept: [String] = []
+        var modelsOwn: [String] = []
+        var animal = 0
         for picture in pictures {
             var text = picture.trimmingCharacters(in: .whitespacesAndNewlines)
             // "1. a corgi" or "- a corgi" from a numbered list.
             if let range = text.range(of: #"^(\d+[.)]|[-*•])\s*"#, options: .regularExpression) { text.removeSubrange(range) }
             text = text.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\".")))
-            guard !text.isEmpty, text.count <= 160, !asksForLettering(text), seen.insert(text.lowercased()).inserted else { continue }
+            guard !text.isEmpty, text.count <= 160, !asksForLettering(text) else { continue }
+            // People nobody asked for: small models draw "a man in a blue shirt" for "good morning".
+            let standIn = !words(text).isDisjoint(with: peopleWords) && queryWords.isDisjoint(with: peopleWords)
+            if standIn {
+                text = "a cute \(animals[animal % animals.count]) \(mood(caption.isEmpty ? picturePart : caption))"
+                animal += 1
+            }
+            guard seen.insert(text.lowercased()).inserted else { continue }
             kept.append(text)
+            if !standIn { modelsOwn.append(text) }
             if kept.count == variations { break }
+        }
+        // A caption that only repeats a search naming what's drawn ("angry cat") isn't something said.
+        if quoted == nil, !caption.isEmpty, words(caption) == queryWords,
+           queryWords.contains(where: { word in word.count > 2 && modelsOwn.filter { words($0).contains(word) }.count >= 3 }) {
+            caption = ""
         }
         let fallbackPicture = picturePart.isEmpty ? fallback(for: query).pictures[0] : picturePart
         while kept.count < variations { kept.append(kept.first ?? fallbackPicture) }
         return StickerIdea(caption: clampCaption(caption), pictures: kept)
+    }
+
+    static let peopleWords: Set<String> = ["person", "people", "man", "men", "woman", "women", "child", "children", "kid", "kids",
+                                           "girl", "girls", "boy", "boys", "guy", "lady", "friends", "human", "humans"]
+    static let animals = ["cat", "dog", "bunny", "bear", "frog", "panda"]
+
+    /// What a stand-in animal does: "saying good morning" draws gibberish, so it shows the mood instead.
+    static func mood(_ words: String) -> String { words.isEmpty ? "smiling" : "feeling \(words)" }
+
+    static func words(_ text: String) -> Set<String> {
+        Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
     }
 
     static func clampCaption(_ caption: String) -> String {
@@ -93,6 +120,7 @@ public enum StickerIdeas {
         let words = Set(lower.components(separatedBy: CharacterSet.letters.inverted))
         return !words.isDisjoint(with: ["text", "letters", "lettering", "words", "written", "caption", "banner", "message", "note"])
             || lower.contains("that says") || lower.contains("sign saying")
+            || picture.contains(where: { "\"“”«»".contains($0) })
     }
 
     // MARK: The language model's part (same wording as Windows)

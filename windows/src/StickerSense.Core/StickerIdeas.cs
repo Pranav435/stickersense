@@ -71,19 +71,44 @@ public static partial class StickerIdeas
         var (picturePart, quoted) = SplitQuoted(query);
         var finalCaption = quoted ?? caption.Trim().Trim('"', '“', '”', '\'').Trim();
         if (finalCaption.ToLowerInvariant() is "none" or "empty" or "n/a" or "-" or "no caption" or "nothing") finalCaption = "";
+        var queryWords = Words(query);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var kept = new List<string>();
+        var modelsOwn = new List<string>();
+        var animal = 0;
         foreach (var picture in pictures)
         {
             var text = ListMarkerRegex().Replace(picture.Trim(), "").Trim().Trim('"', '.').Trim();
-            if (text.Length == 0 || text.Length > 160 || AsksForLettering(text) || !seen.Add(text)) continue;
+            if (text.Length == 0 || text.Length > 160 || AsksForLettering(text)) continue;
+            // People nobody asked for: small models draw "a man in a blue shirt" for "good morning".
+            var standIn = Words(text).Any(PeopleWords.Contains) && !queryWords.Any(PeopleWords.Contains);
+            if (standIn) text = $"a cute {Animals[animal++ % Animals.Length]} {Mood(finalCaption.Length > 0 ? finalCaption : picturePart)}";
+            if (!seen.Add(text)) continue;
             kept.Add(text);
+            if (!standIn) modelsOwn.Add(text);
             if (kept.Count == Variations) break;
+        }
+        // A caption that only repeats a search naming what's drawn ("angry cat") isn't something said.
+        if (quoted is null && finalCaption.Length > 0 && Words(finalCaption).SetEquals(queryWords)
+            && queryWords.Any(w => w.Length > 2 && modelsOwn.Count(k => Words(k).Contains(w)) >= 3))
+        {
+            finalCaption = "";
         }
         var fallbackPicture = picturePart.Length == 0 ? Fallback(query).Pictures[0] : picturePart;
         while (kept.Count < Variations) kept.Add(kept.Count > 0 ? kept[0] : fallbackPicture);
         return new StickerIdea(ClampCaption(finalCaption), kept);
     }
+
+    private static readonly HashSet<string> PeopleWords =
+        ["person", "people", "man", "men", "woman", "women", "child", "children", "kid", "kids", "girl", "girls", "boy", "boys", "guy", "lady", "friends", "human", "humans"];
+
+    private static readonly string[] Animals = ["cat", "dog", "bunny", "bear", "frog", "panda"];
+
+    /// <summary>What a stand-in animal does: "saying good morning" draws gibberish, so it shows the mood instead.</summary>
+    private static string Mood(string words) => words.Length == 0 ? "smiling" : $"feeling {words}";
+
+    private static HashSet<string> Words(string text) =>
+        text.ToLowerInvariant().Split(text.ToLowerInvariant().Where(c => !char.IsLetterOrDigit(c)).Distinct().ToArray(), StringSplitOptions.RemoveEmptyEntries).ToHashSet();
 
     internal static string ClampCaption(string caption)
     {
@@ -101,7 +126,8 @@ public static partial class StickerIdeas
     {
         var lower = picture.ToLowerInvariant();
         var words = lower.Split(lower.Where(c => !char.IsLetter(c)).Distinct().ToArray(), StringSplitOptions.RemoveEmptyEntries);
-        return words.Any(LetteringWords.Contains) || lower.Contains("that says", StringComparison.Ordinal) || lower.Contains("sign saying", StringComparison.Ordinal);
+        return words.Any(LetteringWords.Contains) || lower.Contains("that says", StringComparison.Ordinal) || lower.Contains("sign saying", StringComparison.Ordinal)
+            || picture.IndexOfAny(['"', '“', '”', '«', '»']) >= 0;
     }
 
     // MARK: The language model's part (same wording as the Mac)
@@ -118,19 +144,21 @@ public static partial class StickerIdeas
     /// <see cref="ReplyStart"/> so a small model follows it.
     /// </summary>
     public static string LinesRequest(string query) =>
-        "Reply in exactly the form of these examples, with nothing after CAPTION: when there is no caption.\n\n" +
-        string.Join("\n\n", Examples.Select(e => $"{Request(e.Query)}\nCAPTION:{(e.Caption.Length > 0 ? " " + e.Caption : "")}\n" +
+        "Reply in exactly the form of these examples. CAPTION is none unless the search is something people say.\n\n" +
+        string.Join("\n\n", Examples.Select(e => $"{Request(e.Query)}\nCAPTION: {(e.Caption.Length > 0 ? e.Caption : "none")}\n" +
             string.Join("\n", e.Pictures.Select((p, i) => $"{i + 1}. {p}")))) +
         $"\n\nNow your turn.\n{Request(query)}";
 
     /// <summary>
     /// Worked examples for small models (Qwen3-VL 2B follows examples much better than rules):
-    /// a picture without a caption, a phrase with one, and a reaction with no character named.
+    /// pictures without a caption ("none" is easier for them than an empty line), a phrase with
+    /// one, and a reaction with no character named. Tried on Qwen3-VL 2B with sampling as in the app.
     /// </summary>
     internal static readonly IReadOnlyList<(string Query, string Caption, string[] Pictures)> Examples =
     [
         ("sleepy cat", "", ["a sleepy cat yawning", "a cat curled up asleep", "a drowsy cat hugging a pillow", "a cat in a nightcap rubbing its eyes"]),
         ("dog saying good morning", "good morning", ["a happy dog stretching", "a dog holding a coffee mug", "a dog waving one paw", "a smiling dog with a sun hat"]),
+        ("pizza", "", ["a happy pizza slice with a face", "a pizza slice waving", "a cheesy pizza slice winking", "a round pizza dancing"]),
         ("lol", "lol", ["a cat laughing so hard it cries", "a frog rolling over laughing", "a dog giggling behind its paw", "a hamster holding its belly laughing"]),
     ];
 

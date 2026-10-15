@@ -64,6 +64,33 @@ public class GenerateTests
     }
 
     [Fact]
+    public void ACaptionThatOnlyNamesWhatsDrawnIsDropped()
+    {
+        // What Qwen3-VL 2B answered for "angry cat".
+        var angry = StickerIdeas.ParseLines("CAPTION: angry cat\n1. an angry cat growling\n2. an angry cat with a fist raised\n3. an angry cat standing on hind legs\n4. an angry cat biting its tail", "angry cat");
+        Assert.Equal("", angry.Caption);
+        // Phrases people say keep theirs, even when a picture mentions a word of it.
+        var birthday = StickerIdeas.ParseLines("CAPTION: happy birthday\n1. a birthday cake with candles lit\n2. a puppy in a party hat\n3. a bear with a balloon\n4. a cat with a present", "happy birthday");
+        Assert.Equal("happy birthday", birthday.Caption);
+        Assert.Equal("ty", StickerIdeas.Cleaned("x", ["a cat", "a cat", "a cat"], "cat \"ty\"").Caption);
+    }
+
+    [Fact]
+    public void PeopleNobodyAskedForBecomeAnimals()
+    {
+        // What Qwen3-VL 2B answered for "good morning".
+        var idea = StickerIdeas.ParseLines("CAPTION: good morning\n1. a person with a bright smile holding a rose\n2. a man wearing a green jacket standing near a window\n3. a sleepy owl with a coffee cup\n4. a woman with glasses sitting by a bookshelf", "good morning");
+        Assert.Equal("good morning", idea.Caption);
+        Assert.Equal(["a cute cat feeling good morning", "a cute dog feeling good morning", "a sleepy owl with a coffee cup", "a cute bunny feeling good morning"], idea.Pictures);
+        // Asked for: kept.
+        Assert.Equal("a girl dancing in the rain", StickerIdeas.Cleaned("", ["a girl dancing in the rain"], "girl dancing").Pictures[0]);
+    }
+
+    [Fact]
+    public void QuotedWordsInPicturesAreDropped() =>
+        Assert.True(StickerIdeas.AsksForLettering("a gift box with a card reading “Happy Birthday”"));
+
+    [Fact]
     public void LongCaptionsAreCutAtAWord()
     {
         var caption = StickerIdeas.ClampCaption("this is a really very long caption that goes on and on forever");
@@ -107,12 +134,12 @@ public class GenerateTests
     {
         var request = StickerIdeas.LinesRequest("corgi");
         Assert.EndsWith("The search: corgi", request);
-        Assert.Contains("The search: sleepy cat\nCAPTION:\n1. a sleepy cat yawning", request);
+        Assert.Contains("The search: sleepy cat\nCAPTION: none\n1. a sleepy cat yawning", request);
         Assert.Contains("CAPTION: good morning\n1.", request);
         // The examples read back as plans.
         foreach (var (query, caption, pictures) in StickerIdeas.Examples)
         {
-            var idea = StickerIdeas.ParseLines($"CAPTION:{(caption.Length > 0 ? " " + caption : "")}\n" + string.Join("\n", pictures.Select((p, i) => $"{i + 1}. {p}")), query);
+            var idea = StickerIdeas.ParseLines($"CAPTION: {(caption.Length > 0 ? caption : "none")}\n" + string.Join("\n", pictures.Select((p, i) => $"{i + 1}. {p}")), query);
             Assert.Equal(caption, idea.Caption);
             Assert.Equal(pictures, idea.Pictures);
         }

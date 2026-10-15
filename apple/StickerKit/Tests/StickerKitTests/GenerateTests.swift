@@ -44,6 +44,24 @@ struct GenerateTests {
         #expect(StickerIdeas.cleaned(caption: "", pictures: [], query: "pizza").pictures == Array(repeating: "pizza", count: 4))
     }
 
+    @Test func aCaptionThatOnlyNamesWhatsDrawnIsDropped() {
+        let angry = StickerIdeas.cleaned(caption: "angry cat", pictures: ["an angry cat growling", "an angry cat with a fist raised",
+                                                                          "an angry cat standing on hind legs", "an angry cat biting its tail"], query: "angry cat")
+        #expect(angry.caption.isEmpty)
+        let birthday = StickerIdeas.cleaned(caption: "happy birthday", pictures: ["a birthday cake with candles lit", "a puppy in a party hat",
+                                                                                  "a bear with a balloon", "a cat with a present"], query: "happy birthday")
+        #expect(birthday.caption == "happy birthday")
+    }
+
+    @Test func peopleNobodyAskedForBecomeAnimals() {
+        let idea = StickerIdeas.cleaned(caption: "good morning", pictures: ["a person with a bright smile holding a rose", "a man wearing a green jacket",
+                                                                            "a sleepy owl with a coffee cup", "a woman with glasses"], query: "good morning")
+        #expect(idea.caption == "good morning")
+        #expect(idea.pictures == ["a cute cat feeling good morning", "a cute dog feeling good morning", "a sleepy owl with a coffee cup", "a cute bunny feeling good morning"])
+        #expect(StickerIdeas.cleaned(caption: "", pictures: ["a girl dancing in the rain"], query: "girl dancing").pictures[0] == "a girl dancing in the rain")
+        #expect(StickerIdeas.asksForLettering("a gift box with a card reading “Happy Birthday”"))
+    }
+
     @Test func longCaptionsAreCutAtAWord() {
         let caption = StickerIdeas.clampCaption("this is a really very long caption that goes on and on forever")
         #expect(caption.count <= StickerIdeas.maxCaptionLength)
