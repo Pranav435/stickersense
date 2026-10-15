@@ -327,6 +327,8 @@ extension PickerModel {
             offerDownload(model, for: query)
             return
         }
+        // Set before the task starts, so a second Command G can't start a second batch.
+        isGenerating = true
         generateTask = Task { await makeStickers(of: query, model: model) }
     }
 
@@ -358,7 +360,6 @@ extension PickerModel {
     }
 
     private func makeStickers(of query: String, model: StickerModel) async {
-        isGenerating = true
         let count = StickerIdeas.variations
         batchProgress = (0, count)
         defer {

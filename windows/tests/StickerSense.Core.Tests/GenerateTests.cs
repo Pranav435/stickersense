@@ -90,6 +90,35 @@ public class GenerateTests
     }
 
     [Fact]
+    public void MacUsesTheSameWords()
+    {
+        // StickerIdeas.swift must give the image model and the language model the same words.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "apple", "StickerKit", "Sources", "StickerKit", "StickerIdeas.swift"))) dir = dir.Parent;
+        if (dir is null) return; // not run from a checkout
+        var swift = File.ReadAllText(Path.Combine(dir.FullName, "apple", "StickerKit", "Sources", "StickerKit", "StickerIdeas.swift"));
+        Assert.Contains($"public static let style = \"{StickerIdeas.Style}\"", swift);
+        // Swift's multi-line string has the instructions word for word, a line each.
+        foreach (var line in StickerIdeas.Instructions.Split('\n')) Assert.Contains(line, swift);
+    }
+
+    [Fact]
+    public void ExamplesTeachTheReplyForm()
+    {
+        var request = StickerIdeas.LinesRequest("corgi");
+        Assert.EndsWith("The search: corgi", request);
+        Assert.Contains("The search: sleepy cat\nCAPTION:\n1. a sleepy cat yawning", request);
+        Assert.Contains("CAPTION: good morning\n1.", request);
+        // The examples read back as plans.
+        foreach (var (query, caption, pictures) in StickerIdeas.Examples)
+        {
+            var idea = StickerIdeas.ParseLines($"CAPTION:{(caption.Length > 0 ? " " + caption : "")}\n" + string.Join("\n", pictures.Select((p, i) => $"{i + 1}. {p}")), query);
+            Assert.Equal(caption, idea.Caption);
+            Assert.Equal(pictures, idea.Pictures);
+        }
+    }
+
+    [Fact]
     public async Task PlansWithTheModelAndFallsBackWithoutIt()
     {
         var model = new FakeCompleter(" thank you\n1. a corgi bowing\n2. a corgi waving\n3. a corgi with flowers\n4. a corgi winking");

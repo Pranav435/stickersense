@@ -24,8 +24,9 @@ The first time it opens, the Setup window walks you through everything. Setup on
 1. **VoiceOver AppleScript control.** In VoiceOver Utility, General, turn on "Allow VoiceOver to be controlled with AppleScript". When macOS asks whether StickerSense may control VoiceOver, choose Allow.
 2. **Screen Recording,** so StickerSense can see the sticker and its animation. macOS may ask you to reopen StickerSense afterwards.
 3. **Accessibility,** so the picker can paste into your chat.
-4. **WhatsApp stickers** (optional). Press Import WhatsApp Stickers. An Open dialog appears already inside WhatsApp's folder; just press Return. Choosing it yourself is what gives StickerSense permission, because macOS doesn't ask for this kind of access on its own. Imported stickers are described in the background, but only after 90 seconds with no keyboard or trackpad use, so the model never competes with VoiceOver while you work.
-5. **Practise** on the practice sticker at the bottom of Setup.
+4. **Sticker maker** (optional). Press Download Sticker Maker to fetch the model for making your own stickers now (900 megabytes); otherwise it downloads the first time you make one.
+5. **WhatsApp stickers** (optional). Press Import WhatsApp Stickers. An Open dialog appears already inside WhatsApp's folder; just press Return. Choosing it yourself is what gives StickerSense permission, because macOS doesn't ask for this kind of access on its own. Imported stickers are described in the background, but only after 90 seconds with no keyboard or trackpad use, so the model never competes with VoiceOver while you work.
+6. **Practise** on the practice sticker at the bottom of Setup.
 
 ### Shortcuts
 
@@ -33,9 +34,24 @@ All shortcuts are Option Shift Command plus a letter, and you can change the let
 
 - **Option Shift Command D:** describe what the VoiceOver cursor is on. Press it again within 3 seconds for the detailed description, and a third time to hear the detail again. After an automatic description, one press gives the detail.
 - **Option Shift Command S:** sticker picker. Type what you want. Your own stickers are read out straight away ("3 of yours and 50 from GIPHY. First: …"); if GIPHY is slow, you hear "Plus 50 from GIPHY" when they arrive. Press Return to paste the first result into the chat you came from, or Tab to the list and use the arrow keys. GIPHY results come 50 at a time, and more load as you near the end of the list; the last row, "More GIPHY results", loads the next 50 and moves you to them. GIPHY results are described on this Mac as you reach them, and those descriptions are remembered, so popular GIFs are instant next time. Each result has actions in the VoiceOver rotor: paste, describe in detail, copy, and remove. Escape closes the picker.
+- **Command G in the picker:** make your own stickers of what you typed. See below.
 - **Type two colons (::) in a chat:** also opens the sticker picker, like emoji pickers in Slack and Discord. The colons are replaced by the sticker you pick; press Escape and they stay as you typed them. This only works in chat apps and browsers, in the message box, and can be turned off in Settings.
 - **Option Shift Command H:** history. Return on an entry speaks its detailed description.
 - **Option Shift Command A:** turn automatic descriptions on or off.
+
+### Making your own stickers
+
+As soon as you type in the picker's search field, a Generate Sticker button appears after it. Press it, or Command G, and StickerSense makes 4 stickers of what you typed, on this Mac:
+
+1. Apple's on-device model plans them: the words to print, when your search is something people say ("lol", "thank you", "happy birthday"), and four different ideas for the picture. Words in quotes are always printed exactly as typed: `corgi "ty <3"`.
+2. A small image model draws each picture on the Mac's graphics card. Vision lifts the subject off its background, the words are written in bold lettering, and a white die-cut border goes round it, like a WhatsApp sticker.
+3. Each sticker is described while the next one is drawn, and read out as it's ready: "Sticker 1 of 4: Cartoon corgi bowing, “thank you”. It's at the top of the list." All 4 take about 15 seconds on an M4. The new stickers stay at the top of the list until you close the picker.
+
+Press Return on one to paste it, like any other result. Only the stickers you paste or copy are kept, in your library under Made by you; searching for the same words finds them again. Typing something else, or closing the picker, stops the stickers still being made.
+
+The first time, StickerSense asks before downloading the sticker model from Hugging Face (900 megabytes for Fast, 2 gigabytes for Better), and says how the download is going. The very first sticker then takes about a minute while the graphics card compiles its shaders; after that it's a few seconds each. Choose the model in Settings, under Making stickers: Fast is SDXS-512 (OpenRAIL++); Better is SD-Turbo, which follows your search more closely (Stability AI Community License; powered by Stability AI). What you type never leaves the Mac.
+
+Apple's own image generator (Image Playground) can't be used here: on macOS 27 it only works through its own window, and only lets you pick one picture, without descriptions.
 
 ### Sounds
 
@@ -76,4 +92,5 @@ Requirements: Xcode 27, XcodeGen (`brew install xcodegen`).
 
 - **Mac app.** Run `STICKERSENSE_SIGN_IDENTITY="<your Apple Development certificate SHA-1>" apple/scripts/build-mac.sh`. It copies the sources to `~/Library/Caches/StickerSense-build` (an iCloud-synced Documents folder can stall `xcodebuild`), builds, signs with your certificate so macOS keeps its permissions across rebuilds, installs to `~/Applications` and launches it. It refuses revoked certificates.
 - **iPhone app.** Run `xcodegen generate` in `apple/`, open `StickerSense.xcodeproj`, set your team on the three iOS targets (the App Group is `group.com.pranavsavla.StickerSense`), and run the StickerSenseiOS scheme.
+- **Sticker maker.** The build script also downloads a pinned release of [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) (MIT), checks its SHA-256, keeps only its Apple silicon part, and signs `sd-cli` and its library into `StickerSense.app/Contents/MacOS`. `StickerSense.app/Contents/MacOS/StickerSense --make-sticker "corgi saying thank you" --out folder` makes stickers without any windows and prints how long each step took (add `--download` the first time).
 - **Tests.** In `apple/StickerKit`, run `swift test`. Add `STICKERSENSE_MODEL_TESTS=1` to also run the tests that use the real on-device model. If the folder is synced with iCloud, add `--scratch-path` with a folder outside it.

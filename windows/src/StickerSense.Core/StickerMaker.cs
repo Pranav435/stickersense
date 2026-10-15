@@ -152,7 +152,7 @@ public static class StickerIdeaWriter
         try
         {
             var reply = await model.CompleteAsync(StickerIdeas.Instructions, StickerIdeas.LinesRequest(query), StickerIdeas.ReplyStart,
-                maxNewTokens: 160, stopAfterLines: StickerIdeas.ReplyLines, ct).ConfigureAwait(false);
+                maxNewTokens: 110, stopAfterLines: StickerIdeas.ReplyLines, ct).ConfigureAwait(false);
             return StickerIdeas.ParseLines(StickerIdeas.ReplyStart + reply, query);
         }
         catch (Exception e) when (e is not OperationCanceledException)

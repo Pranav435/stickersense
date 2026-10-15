@@ -615,7 +615,7 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
             RemoveOldStickerFiles();
             app.Earcons.Play(Earcon.Working);
             Status = $"Making {count} stickers of {text}…";
-            var pace = SdCliGenerator.UsesGraphicsCard ? "" : " Each one takes several seconds on the processor; they're announced as they're ready.";
+            var pace = SdCliGenerator.UsesGraphicsCard ? "" : " On the processor each one takes up to half a minute; you'll hear each as it's ready.";
             app.Announcer.Say($"Making {count} stickers of {text}.{pace}");
 
             var idea = await StickerIdeaWriter.IdeasAsync(text, app.Describer, app.Log.Add, ct);

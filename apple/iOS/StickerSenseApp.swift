@@ -252,6 +252,8 @@ struct StickersScreen: View {
                     text = try await state.pipeline.detail(for: described, frames: nil, context: .file)
                 case .giphy(let gif):
                     text = try await state.search.detail(gif)
+                case .generated(let sticker):
+                    text = try await state.search.detail(sticker)
                 case .loadMore:
                     return
                 }
@@ -294,6 +296,12 @@ private struct StickerRow: View {
             }
         case .giphy(let gif):
             AsyncImage(url: gif.smallURL ?? gif.previewURL) { $0.resizable().scaledToFit() } placeholder: { ProgressView() }
+        case .generated(let sticker):
+            if let image = UIImage(contentsOfFile: sticker.fileURL.path) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: "photo")
+            }
         case .loadMore:
             EmptyView()
         }

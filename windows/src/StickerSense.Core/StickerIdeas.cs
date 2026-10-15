@@ -109,7 +109,7 @@ public static partial class StickerIdeas
     public const string Instructions =
         "You plan chat stickers. Someone typed a search for a sticker. You plan stickers that an image generator will draw, and the words to print on them.\n" +
         "caption: the words to print on the sticker, only when the search is something people say in chat, such as a greeting, reaction, reply or wish (\"thank you\", \"lol\", \"good morning\", \"happy birthday\", \"on my way\"). Copy those words exactly as the search has them, changing only capital letters. Leave it empty when the search only describes a picture, such as \"sleepy cat\" or \"pizza\".\n" +
-        "pictures: different ideas for the picture, each a short phrase of at most 15 words. Keep the character or thing the search names in every idea, and vary its pose, expression or prop. Only when the search names nobody, choose a cute animal or character that shows its meaning and mood. Never ask for words, letters or signs in the picture.";
+        "pictures: different ideas for the picture, each a short phrase of at most 10 words: one cute character or thing and what it is doing, with at most one small prop, and no place, scene or background. Keep the character or thing the search names in every idea, and vary its pose, expression or prop. Only when the search names nobody, choose a cute animal that shows the meaning and mood of the search. Never ask for words, letters or signs in the picture.";
 
     public static string Request(string query) => $"The search: {query}";
 
@@ -118,8 +118,21 @@ public static partial class StickerIdeas
     /// <see cref="ReplyStart"/> so a small model follows it.
     /// </summary>
     public static string LinesRequest(string query) =>
-        Request(query) + "\n\nReply in exactly this form, with nothing after the caption when there is none:\n" +
-        $"CAPTION: <words to print>\n{string.Join("\n", Enumerable.Range(1, Variations).Select(n => $"{n}. <picture idea>"))}";
+        "Reply in exactly the form of these examples, with nothing after CAPTION: when there is no caption.\n\n" +
+        string.Join("\n\n", Examples.Select(e => $"{Request(e.Query)}\nCAPTION:{(e.Caption.Length > 0 ? " " + e.Caption : "")}\n" +
+            string.Join("\n", e.Pictures.Select((p, i) => $"{i + 1}. {p}")))) +
+        $"\n\nNow your turn.\n{Request(query)}";
+
+    /// <summary>
+    /// Worked examples for small models (Qwen3-VL 2B follows examples much better than rules):
+    /// a picture without a caption, a phrase with one, and a reaction with no character named.
+    /// </summary>
+    internal static readonly IReadOnlyList<(string Query, string Caption, string[] Pictures)> Examples =
+    [
+        ("sleepy cat", "", ["a sleepy cat yawning", "a cat curled up asleep", "a drowsy cat hugging a pillow", "a cat in a nightcap rubbing its eyes"]),
+        ("dog saying good morning", "good morning", ["a happy dog stretching", "a dog holding a coffee mug", "a dog waving one paw", "a smiling dog with a sun hat"]),
+        ("lol", "lol", ["a cat laughing so hard it cries", "a frog rolling over laughing", "a dog giggling behind its paw", "a hamster holding its belly laughing"]),
+    ];
 
     public const string ReplyStart = "CAPTION:";
 

@@ -18,6 +18,7 @@ This is the Windows version of the Mac app in this repository and behaves the sa
 - A GIF you sent from the picker ("Your GIF" in the chat) is recognised and described from the original file.
 - The sticker picker finds stickers by what they show, say or mean, and pastes one into your chat. It never sends it: you press Enter yourself.
 - In a chat's message box, type two colons (::) to open the sticker picker. The sticker you pick replaces the colons.
+- Can't find the right sticker? Press Control G in the picker and StickerSense makes 4 of your own from what you typed, on this computer, and reads each one out as it's ready.
 
 ## Keyboard shortcuts
 
@@ -165,10 +166,25 @@ More actions in the list:
 - Shift+F10 or the Applications key: all actions in a menu.
 - Escape: close the picker and go back to your chat.
 
-Stickers come from three places:
+### Making your own stickers
+
+As soon as you type in the search box, a Generate sticker button appears after it. Press it, or Control G (or Alt G) from anywhere in the picker, and StickerSense makes 4 stickers of what you typed, on this computer:
+
+1. It plans them with the description model: the words to print, when your search is something people say ("lol", "thank you", "happy birthday"), and four different ideas for the picture. Words in quotes are always printed exactly as typed: `corgi "ty <3"`.
+2. It draws each picture with a small image model, lifts the subject off its background, writes the words in bold lettering, and puts a white die-cut border round it, like a WhatsApp sticker.
+3. Each sticker is described like any other and read out as it's ready: "Sticker 1 of 4: Cartoon corgi bowing, “thank you”. It's at the top of the list." The new stickers stay at the top of the list until you close the picker.
+
+Press Enter on one to paste it, like any other result. Only the stickers you paste or copy are kept, in your library under Made by you; searching for the same words finds them again. Typing something else, or closing the picker, stops the stickers still being made.
+
+Without a graphics card it takes a while: on GitHub's 4-core Windows test machines, planning takes about 15 seconds and each sticker about 15 seconds to draw and 12 to describe, so the first one is ready after about 45 seconds and all 4 after about 2 minutes. A faster processor is quicker, and a graphics card with memory of its own is used for drawing when there is one. Your screen reader keeps working meanwhile.
+
+The first time, StickerSense asks before downloading the sticker maker's models: 1.1 gigabytes for Fast (SDXS-512 and the cut-out model), or 2.2 gigabytes for Better (SD-Turbo), from Hugging Face and GitHub. It says how the download is going every quarter, and you can keep using StickerSense meanwhile. You can also download it ahead of time from Setup or Settings. Choose the model in Settings: Fast is quicker; Better follows your search more closely and varies more.
+
+Stickers come from four places:
 
 - Received: every sticker StickerSense has described for you.
 - WhatsApp: stickers WhatsApp Desktop keeps on this computer. Use Import WhatsApp Stickers in Setup or Settings. StickerSense only reads WhatsApp's files; it never changes them. Imported stickers are described in the background, but only while your computer is idle: nobody has typed or used the mouse for 90 seconds, and battery saver is off. Describing stops the moment you press a key, so it never slows your screen reader down. Until then, an imported sticker is described when you arrow onto it in the picker.
+- Made by you: stickers you made with Control G and then pasted or copied.
 - GIPHY: search results, if you add a free GIPHY API key in Settings. Get one at [developers.giphy.com](https://developers.giphy.com/dashboard/). The key is stored encrypted for your Windows account. GIPHY's own titles rarely say what's in the picture, so StickerSense describes the results on this computer, starting with the one you're on, and remembers those descriptions (up to 3000) so a GIF is only described once.
 
 ## Staying out of your screen reader's way
@@ -204,6 +220,7 @@ Open Settings from the StickerSense menu. You can:
 - Choose your screen reader or the Windows voice for speech.
 - Change the shortcut keys.
 - Import WhatsApp stickers and add a GIPHY key.
+- Choose the sticker model for making your own stickers, Fast or Better, and download it ahead of time.
 - Open StickerSense when you sign in to Windows.
 
 ## Sounds
@@ -217,11 +234,12 @@ StickerSense plays short, quiet tones so you know what's happening without extra
 
 ## Privacy
 
-Describing happens on this computer. StickerSense only uses the internet to download the model, to search GIPHY when you've added a key, and to download GIPHY results you choose.
+Describing and making stickers happen on this computer. StickerSense only uses the internet to download its models, to search GIPHY when you've added a key, and to download GIPHY results you choose. What you type to make a sticker never leaves the computer.
 
 Your data is in `%LOCALAPPDATA%\StickerSense`:
 
-- `library.json` and the `images` folder: stickers StickerSense has described. Photos are remembered as descriptions only; their pictures are not kept.
+- `library.json` and the `images` folder: stickers StickerSense has described, and ones you made and sent. Photos are remembered as descriptions only; their pictures are not kept.
+- `models`: the description model and the sticker maker's models, when downloaded here.
 - `settings.json`: your settings.
 - `giphy-key.bin`: your GIPHY key, encrypted for your Windows account.
 - `StickerSense.log`: an activity log for troubleshooting. It never contains pictures.
@@ -307,4 +325,8 @@ Running the script again resumes an interrupted model download.
 - Phi-3.5-vision-instruct, by Microsoft: MIT license.
 - SixLabors.ImageSharp: Six Labors Split License (Apache 2.0 for open source projects and small organisations). StickerSense stays on version 3.1 because version 4 needs a license key to build. Known 3.1 security advisories are in parts it doesn't use: TIFF images and histogram equalisation. ICC colour profiles are never read.
 - Interop.UIAutomationClient: MIT license.
+- stable-diffusion.cpp, by leejet, and ggml: MIT license. The release includes its Vulkan build in the `sd` folder, with its licences (`stable-diffusion.cpp.txt`, `ggml.txt`).
+- SDXS-512-DreamShaper, by IDKiro and others: OpenRAIL++ license. Downloaded on first use from [akleine/sdxs-512](https://huggingface.co/akleine/sdxs-512).
+- SD-Turbo, by Stability AI: Stability AI Community License. Powered by Stability AI. Downloaded only if you choose the Better sticker model, as a GGUF build by Green-Sky, with madebyollin's TAESD decoder (MIT).
+- ISNet (DIS) for anime and cartoons, by Xuebin Qin and SkyTNT: Apache 2.0 license. Downloaded on first use from rembg's model release.
 - NVDA controller client, by NV Access: LGPL 2.1. The release includes `nvdaControllerClient.dll` unchanged, with its licence in `nvdaControllerClient-license.txt`. Its source code is at [github.com/nvaccess/nvda](https://github.com/nvaccess/nvda).

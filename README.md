@@ -19,6 +19,7 @@ Free, no ads, no tracking. If it saves you from answering a crying sticker with 
 - **Ignores group chat clutter.** The sender's name and timestamp are painted out before describing, so "Ana" is never read as the sticker's caption.
 - **Remembers everything it describes.** The second time a sticker turns up, from anyone, the description is instant.
 - **Includes a sticker picker made for screen readers.** Type two colons (::) in a chat, or press the picker shortcut, then search by what a sticker shows, says or means: "birthday", "lol", "thank you". It searches stickers you've heard, your WhatsApp stickers, and GIPHY 50 at a time. Choose one and it's pasted into your chat, replacing the colons. It never presses Send for you; that's still your decision.
+- **Makes your own stickers.** Can't find the right one? Press Command G in the picker (Control G on Windows) and StickerSense makes 4 stickers of what you typed, on your own computer: a cut-out character with a white die-cut border, and your words written on it exactly ("thank you", "lol"). Each one is described out loud as it's ready, so you know what you're sending. Only the ones you send are kept.
 - **Keeps a history** of everything described, with the detailed version one keypress away.
 
 ## Install
@@ -71,6 +72,7 @@ All of these work from any app. You can change the letter keys in Settings.
 |---|---|---|
 | Describe what your screen reader is on; press twice for detail | Option Shift Command D | Control Alt Shift D |
 | Open the sticker picker | Option Shift Command S, or type :: in a chat | Control Alt Shift S, or type :: in a chat |
+| Make stickers of what you typed (in the picker) | Command G | Control G |
 | Open the history | Option Shift Command H | Control Alt Shift H |
 | Turn automatic descriptions on or off | Option Shift Command A | Control Alt Shift A |
 
@@ -92,11 +94,12 @@ It also stays out of your screen reader's way. It only checks what you're on aft
 1. **Find the item.** On a Mac, StickerSense asks VoiceOver, through VoiceOver's AppleScript support, where its cursor is and what it's saying. On Windows, it follows UI Automation focus and the item's accessible name. On iPhone, a shortcut takes a screenshot.
 2. **Look at it.** It captures only that rectangle of the screen, plus a few more frames if anything moves.
 3. **Read and describe.** Text recognition built into the system (Apple's Vision framework, or Windows OCR) reads the words. An on-device model describes the picture: Apple's foundation model on a Mac, and Qwen3-VL 2B (or Phi-3.5-vision, if you prefer) on Windows. For speed, it starts describing the first frame while still checking whether the sticker is animated.
-4. **Speak.** On a Mac the description goes to VoiceOver. On Windows it goes to NVDA or JAWS directly, to Narrator through UI Automation, or to the Windows voice if no screen reader is running. Either way, you hear it in your own voice settings and it reaches your braille display.
+4. **Make stickers (when you ask).** The on-device language model plans the caption and four picture ideas; [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) draws them with SDXS-512 or SD-Turbo (Metal on a Mac, Vulkan or the processor on Windows); Vision on a Mac, or ISNet on Windows, cuts out the subject; StickerSense writes the words and adds the border, then describes the result like any sticker.
+5. **Speak.** On a Mac the description goes to VoiceOver. On Windows it goes to NVDA or JAWS directly, to Narrator through UI Automation, or to the Windows voice if no screen reader is running. Either way, you hear it in your own voice settings and it reaches your braille display.
 
 ## Privacy
 
-- Pictures are described on your computer. The only exception is an optional Mac setting that sends detailed descriptions to Apple's Private Cloud Compute, and it's off unless you turn it on.
+- Pictures are described, and stickers made, on your computer. The only exception is an optional Mac setting that sends detailed descriptions to Apple's Private Cloud Compute, and it's off unless you turn it on.
 - Photos are never saved. Only stickers and GIFs go into your local library, with names and times painted out.
 - Your GIPHY key lives in the Mac Keychain, or encrypted for your Windows account, not in a settings file.
 - The activity log records what was said and how long it took. It never records images or your messages.
@@ -172,4 +175,4 @@ Nobody has sent a sticker yet, so the first name here could be yours.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). On Windows, the release also includes Qwen3-VL 2B (Apache 2.0) and NVDA's controller client (LGPL 2.1); [windows/README.md](windows/README.md) lists them.
+MIT. See [LICENSE](LICENSE). On Windows, the release also includes Qwen3-VL 2B (Apache 2.0) and NVDA's controller client (LGPL 2.1); [windows/README.md](windows/README.md) lists them. Both apps include stable-diffusion.cpp (MIT) for making stickers. Its models are downloaded on first use: SDXS-512 (OpenRAIL++), or SD-Turbo if you choose it (Stability AI Community License; powered by Stability AI), and on Windows ISNet (Apache 2.0).

@@ -100,7 +100,7 @@ public enum StickerIdeas {
     public static let instructions = """
         You plan chat stickers. Someone typed a search for a sticker. You plan stickers that an image generator will draw, and the words to print on them.
         caption: the words to print on the sticker, only when the search is something people say in chat, such as a greeting, reaction, reply or wish ("thank you", "lol", "good morning", "happy birthday", "on my way"). Copy those words exactly as the search has them, changing only capital letters. Leave it empty when the search only describes a picture, such as "sleepy cat" or "pizza".
-        pictures: different ideas for the picture, each a short phrase of at most 15 words. Keep the character or thing the search names in every idea, and vary its pose, expression or prop. Only when the search names nobody, choose a cute animal or character that shows its meaning and mood. Never ask for words, letters or signs in the picture.
+        pictures: different ideas for the picture, each a short phrase of at most 10 words: one cute character or thing and what it is doing, with at most one small prop, and no place, scene or background. Keep the character or thing the search names in every idea, and vary its pose, expression or prop. Only when the search names nobody, choose a cute animal that shows the meaning and mood of the search. Never ask for words, letters or signs in the picture.
         """
 
     public static func request(for query: String) -> String {
@@ -113,7 +113,7 @@ struct StickerPlan {
     @Guide(description: "The search's own words to print on the sticker, copied exactly, when the search is something people say in chat; empty when the search only describes a picture")
     var caption: String
 
-    @Guide(description: "Different picture ideas, each at most 15 words: the character or thing the search names (or, if it names none, a cute animal) in a different pose, expression or with a different prop. No words or letters in the picture.", .count(StickerIdeas.variations))
+    @Guide(description: "Different picture ideas, each at most 10 words: the character or thing the search names (or, if it names none, a cute animal) in a different pose, expression or with one small prop, with no place or background. No words or letters in the picture.", .count(StickerIdeas.variations))
     var pictures: [String]
 }
 
