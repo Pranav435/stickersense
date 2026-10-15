@@ -20,6 +20,8 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
     private string importStatus = "";
     private EngineStatus engineStatus;
     private int refreshPending;
+    private Task<bool>? stickerDownload;
+    private int stickerDownloadPercent = -1;
 
     public AppServices(Dispatcher dispatcher)
     {
@@ -69,6 +71,9 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
     public int UndescribedCount { get => undescribedCount; private set => Set(ref undescribedCount, value); }
     public string ImportStatus { get => importStatus; private set => Set(ref importStatus, value); }
     public EngineStatus EngineStatus { get => engineStatus; private set => Set(ref engineStatus, value); }
+
+    /// <summary>How far the sticker model's download has got (0 to 100), or -1 when none is running.</summary>
+    public int StickerDownloadPercent { get => stickerDownloadPercent; private set => Set(ref stickerDownloadPercent, value); }
 
     /// <summary>Bundled release first (<c>&lt;app&gt;\models</c>), then the per-user download.</summary>
     public IReadOnlyList<string> ModelDirectories() =>
@@ -138,6 +143,69 @@ internal sealed class AppServices : INotifyPropertyChanged, IDisposable
         // The model just downloaded is the one wanted (after the reload, so it isn't reloaded twice).
         Settings.PreferredModel = variant;
         _ = PrewarmAsync();
+    }
+
+    // MARK: Making stickers
+
+    public static string StickerModelsDirectory => StickerMakerCatalog.ModelsDirectory(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+
+    public bool IsStickerModelInstalled(StickerModel model) => StickerMakerCatalog.IsInstalled(model, StickerModelsDirectory);
+
+    /// <summary>
+    /// Draws, cuts out and captions stickers with the model chosen in Settings. Dispose the
+    /// masker after the batch (it frees the cut-out model).
+    /// </summary>
+    public (StickerFactory Factory, IsNetMasker Masker) StickerFactoryFor(StickerModel model)
+    {
+        var masker = new IsNetMasker(StickerMakerCatalog.CutOutPath(StickerModelsDirectory), Log);
+        return (new StickerFactory(new SdCliGenerator(model, StickerModelsDirectory, Log), masker), masker);
+    }
+
+    /// <summary>
+    /// Downloads the sticker model (and the cut-out model), saying how it's going every quarter.
+    /// Returns whether it's installed afterwards. A second call while one runs waits for it.
+    /// </summary>
+    public Task<bool> DownloadStickerModelAsync(StickerModel model)
+    {
+        if (IsStickerModelInstalled(model)) return Task.FromResult(true);
+        return stickerDownload ??= RunStickerDownloadAsync(model);
+    }
+
+    private async Task<bool> RunStickerDownloadAsync(StickerModel model)
+    {
+        StickerDownloadPercent = 0;
+        Announcer.Say($"Downloading the sticker maker, {StickerMakerCatalog.SpokenSize(model)}. You can keep using StickerSense meanwhile.", interrupt: false);
+        Log.Add($"Downloading the {model} sticker model to {StickerModelsDirectory}");
+        var milestones = new PercentMilestones(25);
+        var progress = new Progress<DownloadProgress>(p =>
+        {
+            StickerDownloadPercent = p.Percent;
+            if (milestones.Next(p.Percent) is { } m && m < 100) Announcer.Say($"Sticker maker download: {m} percent.", interrupt: false);
+        });
+        try
+        {
+            await StickerMakerCatalog.DownloadAsync(model, StickerModelsDirectory, progress, ct: shutdown.Token);
+            Log.Add("Sticker model downloaded");
+            Earcons.Play(Earcon.Ready);
+            Announcer.Say("The sticker maker is ready.", interrupt: false);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception e) when (e is ModelDownloadException or IOException or System.Net.Http.HttpRequestException)
+        {
+            Log.Add($"Sticker model download failed: {e.Message}");
+            Earcons.Play(Earcon.Failed);
+            Announcer.Say(e is ModelDownloadException ? e.Message : "The sticker maker didn't download. Check the internet connection and try again; it continues where it left off.");
+            return false;
+        }
+        finally
+        {
+            StickerDownloadPercent = -1;
+            stickerDownload = null;
+        }
     }
 
     // MARK: WhatsApp import

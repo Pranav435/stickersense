@@ -63,6 +63,22 @@ struct SettingsView: View {
                 Link("Get a free GIPHY API key", destination: URL(string: "https://developers.giphy.com/dashboard/")!)
             }
 
+            Section("Making stickers") {
+                Picker("Sticker model", selection: $settings.stickerModel) {
+                    ForEach(StickerModel.allCases) { Text($0.title).tag($0) }
+                }
+                Text("In the sticker picker, type what you want and press Command G: StickerSense makes \(StickerIdeas.variations) stickers on this Mac and describes each one. Fast is quicker; Better follows your search more closely. \(settings.stickerModel.credit)")
+                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Text(stickerModelState)
+                    Spacer()
+                    if !StickerMaker.isInstalled(settings.stickerModel) {
+                        Button("Download Now") { Task { await app.downloadStickerModel(settings.stickerModel) } }
+                            .disabled(app.stickerDownload != nil)
+                    }
+                }
+            }
+
             Section("General") {
                 Toggle("Open StickerSense when I log in", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, value in settings.launchAtLogin = value }
@@ -75,6 +91,14 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(minWidth: 560, minHeight: 620)
         .onAppear { launchAtLogin = settings.launchAtLogin }
+    }
+
+    private var stickerModelState: String {
+        _ = app.stickerModelsChanged // re-check after a download
+        if let download = app.stickerDownload { return "Downloading \(download.model.title): \(download.percent) percent." }
+        return StickerMaker.isInstalled(settings.stickerModel)
+            ? "Downloaded."
+            : "Not downloaded yet (\(settings.stickerModel.spokenSize)). It downloads the first time you make a sticker."
     }
 
     private func shortcutPicker(_ title: String, selection: Binding<String>) -> some View {

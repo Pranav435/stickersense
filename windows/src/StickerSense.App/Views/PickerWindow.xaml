@@ -22,6 +22,7 @@
         <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="12" />
                 <ColumnDefinition Width="180" />
             </Grid.ColumnDefinitions>
@@ -34,11 +35,18 @@
             <TextBox x:Name="SearchBox" Grid.Row="1"
                      Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
                      AutomationProperties.Name="Search stickers"
-                     AutomationProperties.HelpText="Type what the sticker shows, says or means, for example birthday, lol or thank you. Press Enter to paste the first result, or Down Arrow to go to the list."
+                     AutomationProperties.HelpText="Type what the sticker shows, says or means, for example birthday, lol or thank you. Press Enter to paste the first result, Down Arrow to go to the list, or Control G to make your own."
                      PreviewKeyDown="SearchBox_PreviewKeyDown" />
 
-            <Label Grid.Column="2" Content="Show stickers _from" Target="{Binding ElementName=SourceBox}" Padding="0,0,0,4" />
-            <ComboBox x:Name="SourceBox" Grid.Row="1" Grid.Column="2"
+            <!-- Appears once something is typed. Its name drops the underscore: "Generate sticker". -->
+            <Button x:Name="GenerateButton" Grid.Row="1" Grid.Column="1" Margin="8,0,0,0" Padding="10,2"
+                    Content="{Binding GenerateButtonText}"
+                    Visibility="{Binding CanGenerate, Converter={StaticResource VisibleWhen}}"
+                    AutomationProperties.HelpText="Makes 4 new stickers of what you typed, on this computer, and reads each one out as it's ready. Control G."
+                    Click="GenerateButton_Click" />
+
+            <Label Grid.Column="3" Content="Show stickers _from" Target="{Binding ElementName=SourceBox}" Padding="0,0,0,4" />
+            <ComboBox x:Name="SourceBox" Grid.Row="1" Grid.Column="3"
                       ItemsSource="{Binding Filters}"
                       DisplayMemberPath="Title"
                       SelectedValuePath="Value"

@@ -70,6 +70,7 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
     public CheckRow ScreenReader { get; } = new("Screen reader");
     public CheckRow TextRecognition { get; } = new("Text recognition");
     public CheckRow WhatsApp { get; } = new("WhatsApp stickers");
+    public CheckRow StickerMaker { get; } = new("Sticker maker");
 
     public string Intro =>
         $"StickerSense describes stickers, GIFs and pictures for you, on this computer, in any app. Put focus on a sticker and press {DescribeShortcut}. " +
@@ -97,6 +98,7 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
     public int DownloadPercent => downloadPercent;
     public bool CanDownload => !Downloading && !app.EngineStatus.CanDescribe;
     public bool CanImport => WhatsAppImporter.IsInstalled;
+    public bool CanDownloadStickerMaker => app.StickerDownloadPercent < 0 && !app.IsStickerModelInstalled(app.Settings.StickerModel);
     public bool NeedsNvdaDll => app.Announcer.ScreenReader() == ScreenReaderKind.Nvda && !app.Announcer.Nvda.IsLoaded;
     public string DoneTitle => Model.IsDone ? "_Done" : "_Finish Later";
 
@@ -123,7 +125,29 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
         {
             WhatsApp.Update(CheckState.Optional, "Optional: import your WhatsApp stickers so you can find and send them from the picker.");
         }
-        Changed(nameof(CanDownload), nameof(CanImport), nameof(NeedsNvdaDll), nameof(DoneTitle));
+        var stickerModel = app.Settings.StickerModel;
+        if (app.IsStickerModelInstalled(stickerModel))
+        {
+            StickerMaker.Update(CheckState.Done, "The sticker maker is ready: in the picker, type what you want and press Control G to make your own stickers.");
+        }
+        else if (app.StickerDownloadPercent >= 0)
+        {
+            StickerMaker.Update(CheckState.Optional, $"Downloading the sticker maker: {app.StickerDownloadPercent} percent.");
+        }
+        else
+        {
+            StickerMaker.Update(CheckState.Optional,
+                $"Optional: download the sticker maker ({StickerMakerCatalog.SpokenSize(stickerModel)}) now, so the picker can make stickers on this computer. Otherwise it downloads the first time you make one.");
+        }
+        Changed(nameof(CanDownload), nameof(CanImport), nameof(NeedsNvdaDll), nameof(DoneTitle), nameof(CanDownloadStickerMaker));
+    }
+
+    public async Task DownloadStickerMakerAsync()
+    {
+        var download = app.DownloadStickerModelAsync(app.Settings.StickerModel);
+        Refresh();
+        await download;
+        Refresh();
     }
 
     private void RefreshModel()
@@ -243,6 +267,11 @@ internal sealed class SetupViewModel : INotifyPropertyChanged
 
     private void AppChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(AppServices.StickerDownloadPercent) && app.StickerDownloadPercent % 10 is 0 or -1)
+        {
+            Refresh();
+            return;
+        }
         if (e.PropertyName != nameof(AppServices.EngineStatus)) return;
         Refresh();
         if (announceWhenReady && app.EngineStatus.IsReady)
@@ -304,6 +333,8 @@ internal partial class SetupWindow : Window
     private void CancelDownload_Click(object sender, RoutedEventArgs e) => model.CancelDownload();
 
     private async void Import_Click(object sender, RoutedEventArgs e) => await model.ImportWhatsAppAsync();
+
+    private async void DownloadStickerMaker_Click(object sender, RoutedEventArgs e) => await model.DownloadStickerMakerAsync();
 
     private void OpenFolder_Click(object sender, RoutedEventArgs e)
     {

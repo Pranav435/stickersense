@@ -136,7 +136,7 @@ public sealed record VisionRequest(
 /// Shared logic for vision-language-model describers: frame preparation, prompts and parsing.
 /// Engines only implement <see cref="GenerateAsync"/>.
 /// </summary>
-public abstract class VisionLanguageDescriber : IStickerDescriber
+public abstract class VisionLanguageDescriber : IStickerDescriber, ITextCompleter
 {
     public const int MaxFrames = 4;
 
@@ -243,6 +243,18 @@ public abstract class VisionLanguageDescriber : IStickerDescriber
             foreach (var image in prepared) image.Dispose();
             if (sideBySide) foreach (var image in images) image.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The model's answer to a text-only request (no picture), such as planning stickers. Engines
+    /// that can't read text alone throw.
+    /// </summary>
+    public async Task<string> CompleteAsync(string instructions, string prompt, string replyStart, int maxNewTokens, int stopAfterLines, CancellationToken ct)
+    {
+        EnsureUsable();
+        var request = new VisionRequest(instructions, prompt, [], maxNewTokens, Temperature: 0.7, ReplyStart: replyStart,
+            StopAfterLines: stopAfterLines, RepetitionPenalty: 1.1);
+        return await GenerateGuardedAsync(request, DescribePriority.Foreground, ct).ConfigureAwait(false);
     }
 
     /// <summary>Strips timestamps and ticks from each OCR line and drops lines that are only chrome.</summary>

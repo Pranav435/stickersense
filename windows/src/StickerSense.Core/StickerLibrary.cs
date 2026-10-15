@@ -514,6 +514,7 @@ public sealed class StickerLibrary : IDisposable
             (record.Reading?.Vibe ?? "", 2),
             (record.Detailed ?? "", 1),
             (record.Reading?.Kind.RawValue() ?? "", 1),
+            (record.Source.SearchText, 2),
         };
         var fieldWords = fields.Select(f => (Words: StickerText.Tokens(f.Text).ToHashSet(), f.Weight)).ToList();
         var total = 0.0;

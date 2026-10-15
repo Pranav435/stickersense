@@ -34,6 +34,7 @@ final class SettingsStore {
     var autoToggleKey: String { didSet { defaults.set(autoToggleKey, forKey: "autoToggleKey"); onChange(hotkeys: true) } }
     var hasCompletedSetup: Bool { didSet { defaults.set(hasCompletedSetup, forKey: "hasCompletedSetup") } }
     var colonTrigger: Bool { didSet { defaults.set(colonTrigger, forKey: "colonTrigger"); onChange() } }
+    var stickerModel: StickerModel { didSet { defaults.set(stickerModel.rawValue, forKey: "stickerModel"); onChange() } }
 
     var giphyKey: String {
         didSet { Keychain.set(giphyKey.trimmingCharacters(in: .whitespacesAndNewlines), for: Keychain.giphyAccount) }
@@ -69,6 +70,7 @@ final class SettingsStore {
             "autoToggleKey": "A",
             "hasCompletedSetup": false,
             "colonTrigger": true,
+            "stickerModel": StickerModel.fast.rawValue,
         ])
         autoDescribe = defaults.bool(forKey: "autoDescribe")
         autoScope = AutoScope(rawValue: defaults.string(forKey: "autoScope") ?? "") ?? .chatApps
@@ -83,6 +85,7 @@ final class SettingsStore {
         autoToggleKey = defaults.string(forKey: "autoToggleKey") ?? "A"
         hasCompletedSetup = defaults.bool(forKey: "hasCompletedSetup")
         colonTrigger = defaults.bool(forKey: "colonTrigger")
+        stickerModel = StickerModel(rawValue: defaults.string(forKey: "stickerModel") ?? "") ?? .fast
         giphyKey = Keychain.string(for: Keychain.giphyAccount) ?? ""
     }
 

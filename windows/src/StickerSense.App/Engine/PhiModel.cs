@@ -121,6 +121,8 @@ internal sealed class PhiModel : IEngineModel
     {
         var started = DateTime.UtcNow;
         var imageCount = request.Images.Count;
+        // Phi-3.5-vision's inputs are built around pictures; planning stickers falls back to rules.
+        if (imageCount == 0) throw new NotSupportedException("Phi-3.5-vision here only answers about a picture.");
         var prompt = PhiVisionPrompt.Build(request.Instructions, request.Prompt, imageCount, request.ReplyStart);
         var chunks = new List<int[]>();
         foreach (var chunk in PhiVisionInputs.TextChunks(prompt))

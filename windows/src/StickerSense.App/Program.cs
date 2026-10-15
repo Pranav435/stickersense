@@ -16,6 +16,7 @@ internal static class Program
         // Command-line tools, for tests and bug reports; they don't touch the running app.
         if (args.Contains("--self-test", StringComparer.OrdinalIgnoreCase)) return Diagnostics.SelfTest.Run(args);
         if (args.Contains("--download-model", StringComparer.OrdinalIgnoreCase)) return Diagnostics.DownloadModelCommand.Run(args);
+        if (args.Contains("--make-sticker", StringComparer.OrdinalIgnoreCase)) return Diagnostics.MakeStickerCommand.Run(args);
         if (args.Contains("--test-window", StringComparer.OrdinalIgnoreCase)) return Diagnostics.TestWindowCommand.Run(args);
 
         var background = StartupRegistration.IsBackgroundLaunch(args);

@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Threading;
+using StickerSense.App.Engine;
 using StickerSense.App.Platform;
 using StickerSense.Core;
 
@@ -14,6 +15,7 @@ internal sealed class PickerItem : INotifyPropertyChanged
 {
     private StickerRecord? record;
     private StickerReading? giphyReading;
+    private GeneratedSticker? generated;
     private ImageSource? thumbnail;
 
     public PickerItem(StickerRecord record)
@@ -27,6 +29,12 @@ internal sealed class PickerItem : INotifyPropertyChanged
         Gif = gif;
         giphyReading = reading;
         Id = gif.Key;
+    }
+
+    public PickerItem(GeneratedSticker sticker)
+    {
+        generated = sticker;
+        Id = $"gen-{sticker.Id}";
     }
 
     private PickerItem()
@@ -49,6 +57,17 @@ internal sealed class PickerItem : INotifyPropertyChanged
         set
         {
             record = value;
+            Changed(nameof(Label));
+        }
+    }
+
+    /// <summary>A sticker just made from the search (its description arrives a moment later).</summary>
+    public GeneratedSticker? Generated
+    {
+        get => generated;
+        set
+        {
+            generated = value;
             Changed(nameof(Label));
         }
     }
@@ -76,7 +95,8 @@ internal sealed class PickerItem : INotifyPropertyChanged
 
     /// <summary>What the screen reader reads for this row.</summary>
     public string Label =>
-        record is not null ? record.ScreenReaderLabel
+        generated is not null ? generated.Label
+        : record is not null ? record.ScreenReaderLabel
         : Gif is not null ? PickerSearch.Label(Gif, giphyReading)
         : PickerSearch.LoadMoreLabel;
 
@@ -113,6 +133,13 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
     private SourceFilter filter = SourceFilter.All;
     private PickerItem? selected;
     private string status = "";
+    /// <summary>Stickers made in this picker, newest batch first. They stay at the top until it closes.</summary>
+    private readonly List<PickerItem> generatedItems = [];
+    private CancellationTokenSource? generateRun;
+    private bool generating;
+    private int madeCount;
+    private (int Done, int Total) batch;
+    private bool generateHintGiven;
 
     public PickerViewModel(AppServices app, IntPtr targetWindow)
     {
@@ -154,10 +181,30 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
         set
         {
             if (!Set(ref query, value)) return;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanGenerate)));
+            StopGenerating("the search changed");
             debounce.Stop();
             debounce.Start();
         }
     }
+
+    /// <summary>Something typed: the Generate sticker button appears.</summary>
+    public bool CanGenerate => query.Trim().Length > 0;
+
+    /// <summary>Making stickers now.</summary>
+    public bool IsGenerating
+    {
+        get => generating;
+        private set
+        {
+            if (Set(ref generating, value)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GenerateButtonText)));
+        }
+    }
+
+    public string GenerateButtonText => generating ? "Making stickers…" : "_Generate sticker";
+
+    /// <summary>Asks a yes-or-no question in a dialog (set by the window): title, message.</summary>
+    public Func<string, string, bool> Confirm { get; set; } = (_, _) => false;
 
     public SourceFilter Filter
     {
@@ -199,8 +246,9 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
         var library = await Task.Run(() => Search.LibraryResults(text, scope), ct);
         if (ct.IsCancellationRequested) return;
         Items.Clear();
+        foreach (var item in generatedItems) Items.Add(item);
         foreach (var record in library) Items.Add(new PickerItem(record));
-        libraryCount = Items.Count;
+        libraryCount = library.Count;
         giphyCount = 0;
         if (selected is not null && !Items.Contains(selected)) Selected = null;
         _ = LoadThumbnailsAsync(Items.ToList(), ct);
@@ -255,7 +303,14 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
     private void Announce(string note, bool giphyPending = false)
     {
         var first = Items.FirstOrDefault(i => !i.IsLoadMore);
-        Status = PickerSearch.ResultsSummary(libraryCount, giphyCount, query, first?.Label, note, SendHint, giphyPending);
+        var hint = SendHint;
+        if (!generateHintGiven && libraryCount + giphyCount > 0)
+        {
+            generateHintGiven = true;
+            hint += " Control G makes your own.";
+        }
+        Status = PickerSearch.ResultsSummary(libraryCount, giphyCount, query, first?.Label, note, hint, giphyPending);
+        if (libraryCount + giphyCount == 0 && !giphyPending && query.Trim().Length > 0) Status += " Control G makes one.";
         app.Announcer.Say(Status, interrupt: false);
     }
 
@@ -293,7 +348,8 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
         foreach (var item in items.Take(120))
         {
             if (ct.IsCancellationRequested || stopped) return;
-            if (item.Record is { } record) item.Thumbnail = await Thumbnails.FromFileAsync(app.Library.ImagePath(record));
+            if (item.Generated is { } sticker) item.Thumbnail = await Thumbnails.FromFileAsync(sticker.FilePath);
+            else if (item.Record is { } record) item.Thumbnail = await Thumbnails.FromFileAsync(app.Library.ImagePath(record));
             else if (item.Gif is { } gif) item.Thumbnail = await Thumbnails.FromFileAsync(await Search.SmallFileAsync(gif));
         }
     }
@@ -369,6 +425,7 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
     public void Stop()
     {
         stopped = true;
+        generateRun?.Cancel();
         debounce.Stop();
         searchRun?.Cancel();
         focusDescribeRun?.Cancel();
@@ -438,7 +495,11 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
         try
         {
             string text;
-            if (item.Record is { } record)
+            if (item.Generated is { } sticker)
+            {
+                text = await Search.DetailAsync(sticker, app.Pipeline.Describer);
+            }
+            else if (item.Record is { } record)
             {
                 var described = await app.Pipeline.DescribeStoredAsync(record);
                 item.Record = described;
@@ -473,14 +534,192 @@ internal sealed class PickerViewModel : INotifyPropertyChanged
 
     private async Task RememberAsync(PickerItem item)
     {
-        if (item.Record is { } record) app.Library.MarkSent(record.Id);
+        if (item.Generated is { } sticker) await Search.MarkSentAsync(sticker);
+        else if (item.Record is { } record) app.Library.MarkSent(record.Id);
         else if (item.Gif is { } gif) await Search.MarkSentAsync(gif);
     }
 
     private async Task<string?> FilePathAsync(PickerItem item) =>
-        item.Record is { } record ? app.Library.ImagePath(record) is { } path && File.Exists(path) ? path : null
+        item.Generated is { } sticker ? File.Exists(sticker.FilePath) ? sticker.FilePath : null
+        : item.Record is { } record ? app.Library.ImagePath(record) is { } path && File.Exists(path) ? path : null
         : item.Gif is { } gif ? await Search.OriginalFileAsync(gif)
         : null;
+
+    // MARK: Making stickers
+
+    /// <summary>Makes stickers of what's typed: the Generate sticker button, Control G and Alt G.</summary>
+    public async Task GenerateAsync()
+    {
+        var text = query.Trim();
+        if (text.Length == 0)
+        {
+            app.Announcer.Say("Type what the sticker should show first, then press Control G.");
+            return;
+        }
+        if (generating)
+        {
+            app.Announcer.Say($"Still making stickers: {batch.Done} of {batch.Total} done.");
+            return;
+        }
+        if (SdCliGenerator.ExecutablePath is null)
+        {
+            app.Earcons.Play(Earcon.Failed);
+            app.Announcer.Say("The sticker maker is missing from this copy of StickerSense. Download StickerSense again.");
+            return;
+        }
+        var model = app.Settings.StickerModel;
+        if (!app.IsStickerModelInstalled(model))
+        {
+            await OfferDownloadAsync(model, text);
+            return;
+        }
+        generateRun?.Dispose();
+        generateRun = new CancellationTokenSource();
+        await MakeStickersAsync(text, model, generateRun.Token);
+    }
+
+    /// <summary>The first time: ask before downloading, then make the stickers if the picker is still on that search.</summary>
+    private async Task OfferDownloadAsync(StickerModel model, string text)
+    {
+        if (app.StickerDownloadPercent >= 0)
+        {
+            app.Announcer.Say($"The sticker maker is still downloading: {app.StickerDownloadPercent} percent.");
+            return;
+        }
+        var message = $"Making stickers needs a one-time download of {StickerMakerCatalog.SpokenSize(model)} from Hugging Face and GitHub. " +
+                      "After that, stickers are made on this computer, without the internet. You can change the model in Settings.\n\nDownload it now?";
+        if (!Confirm("Download the sticker maker?", message)) return;
+        if (!await app.DownloadStickerModelAsync(model) || stopped || query.Trim() != text || generating) return;
+        await GenerateAsync();
+    }
+
+    /// <summary>Stops a batch in progress; what's already made stays.</summary>
+    private void StopGenerating(string reason)
+    {
+        if (!generating || generateRun is null || generateRun.IsCancellationRequested) return;
+        generateRun.Cancel();
+        app.Log.Add($"Stopped making stickers: {reason}");
+        app.Announcer.Say("Stopped making stickers.", interrupt: false);
+    }
+
+    private static string MadeDirectory => Path.Combine(Path.GetTempPath(), "StickerSense", "made");
+
+    private async Task MakeStickersAsync(string text, StickerModel model, CancellationToken ct)
+    {
+        const int count = StickerIdeas.Variations;
+        IsGenerating = true;
+        batch = (0, count);
+        var (factory, masker) = app.StickerFactoryFor(model);
+        try
+        {
+            RemoveOldStickerFiles();
+            app.Earcons.Play(Earcon.Working);
+            Status = $"Making {count} stickers of {text}…";
+            var pace = SdCliGenerator.UsesGraphicsCard ? "" : " Each one takes several seconds on the processor; they're announced as they're ready.";
+            app.Announcer.Say($"Making {count} stickers of {text}.{pace}");
+
+            var idea = await StickerIdeaWriter.IdeasAsync(text, app.Describer, app.Log.Add, ct);
+            app.Log.Add($"Making stickers of \"{text}\": caption \"{idea.Caption}\", pictures {string.Join(" | ", idea.Pictures)}");
+            var made = 0;
+            var failures = 0;
+            // Each sticker is described while the next one is drawn; announcements stay in order.
+            var describing = Task.CompletedTask;
+            for (var index = 0; index < idea.Pictures.Count && !ct.IsCancellationRequested; index++)
+            {
+                var started = DateTime.UtcNow;
+                try
+                {
+                    var sticker = await factory.MakeAsync(idea.Pictures[index], idea.Caption, text, madeCount + 1, MadeDirectory, ct);
+                    madeCount++;
+                    // Newest batch on top, in order within the batch.
+                    var item = new PickerItem(sticker);
+                    generatedItems.Insert(made, item);
+                    Items.Insert(Math.Min(made, Items.Count), item);
+                    made++;
+                    batch.Done = made;
+                    app.Log.Add($"Drew sticker {index + 1} in {(DateTime.UtcNow - started).TotalSeconds:0.0}s");
+                    _ = LoadThumbnailsAsync([item], CancellationToken.None);
+                    describing = DescribeAndAnnounceAsync(item, describing, index + 1, count, first: made == 1, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception e) when (e is StickerMakerException or ImagePrepException or IOException)
+                {
+                    failures++;
+                    app.Log.Add($"Making sticker {index + 1} failed: {e.Message}");
+                    if (failures >= 2 || (made == 0 && e is StickerMakerException))
+                    {
+                        app.Earcons.Play(Earcon.Failed);
+                        app.Announcer.Say(e is StickerMakerException ? $"Couldn't make stickers: {e.Message}" : "Couldn't make stickers.");
+                        return;
+                    }
+                }
+            }
+            try
+            {
+                await describing;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            if (ct.IsCancellationRequested) return;
+            app.Earcons.Play(made > 0 ? Earcon.Ready : Earcon.Failed);
+            Status = made == count ? $"Made {count} stickers of {text}." : $"Made {made} of {count} stickers.";
+            if (made == count) app.Announcer.Say($"All {count} are ready. Press Enter on one to paste it into your chat.", interrupt: false);
+            else if (made == 0) app.Announcer.Say("Couldn't make stickers this time. Try again, or a different search.", interrupt: false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            masker.Dispose();
+            IsGenerating = false;
+        }
+    }
+
+    private async Task DescribeAndAnnounceAsync(PickerItem item, Task previous, int number, int count, bool first, CancellationToken ct)
+    {
+        var sticker = item.Generated!;
+        StickerReading? reading = null;
+        try
+        {
+            reading = await Search.DescribeAsync(sticker, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        try
+        {
+            await previous;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        item.Generated = sticker with { Reading = reading };
+        if (ct.IsCancellationRequested || stopped) return;
+        var what = reading is not null ? SpokenText.ListLabel(reading) : sticker.Picture;
+        Status = $"Made {number} of {count}.";
+        app.Announcer.Say($"Sticker {number} of {count}: {what}." + (first ? " It's at the top of the list." : ""), interrupt: false);
+    }
+
+    /// <summary>Stickers made but never sent are kept for a day (a paste reads the file after the picker closes).</summary>
+    private static void RemoveOldStickerFiles()
+    {
+        try
+        {
+            if (!Directory.Exists(MadeDirectory)) return;
+            foreach (var file in Directory.EnumerateFiles(MadeDirectory, "*.png"))
+            {
+                if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-1)) File.Delete(file);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {

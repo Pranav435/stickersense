@@ -32,6 +32,12 @@
     client zip (a pinned version, checked against its SHA-256) and puts the DLL for -Runtime next
     to the exe, with its licence. Without it, NVDA users hear StickerSense in the Windows voice.
 
+.PARAMETER SkipStickerMaker
+    Leave out the sticker maker (stable-diffusion.cpp's sd-cli). By default the script downloads
+    a pinned stable-diffusion.cpp release (checked against its SHA-256) into the sd folder next
+    to the exe. Its Vulkan build also runs on the processor. The sticker models themselves are
+    downloaded by StickerSense the first time someone makes a sticker.
+
 .PARAMETER SkipModel
     Publish the app only, without the model (users then download it from Setup).
 
@@ -54,6 +60,8 @@ param(
     [string] $NvdaControllerDll,
 
     [switch] $SkipNvdaController,
+
+    [switch] $SkipStickerMaker,
 
     [switch] $SkipModel,
 
@@ -130,6 +138,35 @@ else {
     }
     finally { Remove-Item $zipFile -Force -ErrorAction SilentlyContinue }
     Say "Added NVDA's controller client ($architecture) and its licence next to StickerSense.exe."
+}
+
+# The sticker maker: stable-diffusion.cpp (MIT) draws the stickers. One pinned release, its Vulkan
+# build: that uses a graphics card with memory of its own and runs on the processor otherwise.
+$sdRelease = 'master-964-1d0a58a'
+$sdZipName = 'sd-master-1d0a58a-bin-win-vulkan-x64.zip'
+$sdZipSha256 = '74211CB5C382AEC2AEB086B64F2FDF525EFEC5FAEC4200A2D3257BC2328954AB'
+$sdDir = Join-Path $Output 'sd'
+if ($SkipStickerMaker -or $Runtime -ne 'win-x64') {
+    if ($Runtime -ne 'win-x64' -and -not $SkipStickerMaker) { Say 'stable-diffusion.cpp has no build for this runtime, so the sticker maker is left out.' }
+    Remove-Item $sdDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+elseif (-not (Test-Path (Join-Path $sdDir 'sd-cli.exe'))) {
+    $sdZip = Join-Path ([System.IO.Path]::GetTempPath()) $sdZipName
+    Say "Downloading stable-diffusion.cpp $sdRelease for the sticker maker."
+    Invoke-WebRequest -Uri "https://github.com/leejet/stable-diffusion.cpp/releases/download/$sdRelease/$sdZipName" -OutFile $sdZip -UseBasicParsing
+    try {
+        $hash = (Get-FileHash $sdZip -Algorithm SHA256).Hash
+        if ($hash -ne $sdZipSha256) { throw "The stable-diffusion.cpp download didn't match its expected SHA-256 ($hash)." }
+        New-Item -ItemType Directory -Force -Path $sdDir | Out-Null
+        Expand-Archive -Path $sdZip -DestinationPath $sdDir -Force
+        # Only what sd-cli needs (the server isn't used).
+        Remove-Item (Join-Path $sdDir 'sd-server.exe') -Force -ErrorAction SilentlyContinue
+    }
+    finally { Remove-Item $sdZip -Force -ErrorAction SilentlyContinue }
+    Say 'Added the sticker maker (stable-diffusion.cpp) and its licences in the sd folder.'
+}
+else {
+    Say 'The sticker maker is already in the sd folder.'
 }
 
 # 2. Download the model from Hugging Face into the release.

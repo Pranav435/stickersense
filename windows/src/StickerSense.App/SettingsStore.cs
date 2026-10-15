@@ -35,6 +35,7 @@ internal sealed class SettingsStore : INotifyPropertyChanged, IDescribeSettings
         public string AutoToggleKey { get; init; } = "A";
         public bool HasCompletedSetup { get; init; }
         public bool ColonTrigger { get; init; } = true;
+        public StickerModel StickerModel { get; init; } = StickerModel.Fast;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -84,6 +85,9 @@ internal sealed class SettingsStore : INotifyPropertyChanged, IDescribeSettings
 
     /// <summary>Typing "::" in a chat opens the sticker picker.</summary>
     public bool ColonTrigger { get => values.ColonTrigger; set => Update(values with { ColonTrigger = value }); }
+
+    /// <summary>Which image model makes stickers in the picker.</summary>
+    public StickerModel StickerModel { get => values.StickerModel; set => Update(values with { StickerModel = value }); }
 
     /// <summary>Test-only: extra processes treated as chat apps (from --watch-app; never saved).</summary>
     public IReadOnlyCollection<string> AlsoWatchedApps { get; set; } = [];

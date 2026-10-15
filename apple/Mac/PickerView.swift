@@ -11,8 +11,16 @@ final class PickerModel {
     /// Characters to delete before pasting: 2 when the picker was opened by typing "::".
     var charactersToReplace = 0
     var close: () -> Void = {}
+    /// False once the picker has closed.
+    private(set) var isOpen = true
 
-    var query = "" { didSet { scheduleSearch() } }
+    var query = "" {
+        didSet {
+            guard query != oldValue else { return }
+            stopGenerating(because: "the search changed")
+            scheduleSearch()
+        }
+    }
     var filter: SourceFilter = .all { didSet { scheduleSearch(immediate: true) } }
     var items: [PickerItem] = []
     var selection: PickerItem.ID? { didSet { selectionChanged() } }
@@ -29,6 +37,14 @@ final class PickerModel {
     /// GIPHY results waiting for an on-device description; the focused one jumps the queue.
     private var describeQueue: [GiphyItem] = []
     private var describeWorker: Task<Void, Never>?
+    /// Stickers made in this picker, newest batch first. They stay at the top until it closes.
+    private var generatedItems: [PickerItem] = []
+    private var generateTask: Task<Void, Never>?
+    private var madeCount = 0
+    /// Making stickers now (the button says so).
+    var isGenerating = false
+    /// How many of this batch are done, for "still making stickers" answers.
+    private var batchProgress = (done: 0, total: 0)
 
     init(app: AppModel) {
         self.app = app
@@ -41,8 +57,11 @@ final class PickerModel {
     private var sendHint: String {
         if hintGiven { return "" }
         hintGiven = true
-        return "Return pastes it, Down Arrow for more."
+        return "Return pastes it, Down Arrow for more. Command G makes your own."
     }
+
+    /// Something typed: the Generate Sticker button appears.
+    var canGenerate: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     // MARK: Search
 
@@ -64,7 +83,7 @@ final class PickerModel {
         guard !Task.isCancelled else { return }
         libraryCount = library.count
         giphyCount = 0
-        items = library
+        items = generatedItems + library
         if let selection, !items.contains(where: { $0.id == selection }) { self.selection = nil }
         guard wantsGiphy else {
             await announceWhenTypingPauses(note: "")
@@ -113,6 +132,7 @@ final class PickerModel {
         guard !Task.isCancelled else { return }
         status = PickerItem.resultsSummary(libraryCount: libraryCount, giphyCount: giphyCount, query: query,
                                           firstLabel: items.first.map(label(for:)), note: note, sendHint: sendHint, giphyPending: giphyPending)
+        if libraryCount + giphyCount == 0, !giphyPending { status += " Command G makes one." }
         app.announcer.say(status, interrupt: false)
     }
 
@@ -150,6 +170,8 @@ final class PickerModel {
 
     /// Stops all background work — called when the picker closes so nothing keeps the model busy.
     func stop() {
+        isOpen = false
+        generateTask?.cancel()
         searchTask?.cancel()
         focusDescribeTask?.cancel()
         describeWorker?.cancel()
@@ -256,6 +278,8 @@ final class PickerModel {
                     text = try await app.pipeline.detail(for: described, frames: nil, context: .file)
                 case .giphy(let gif):
                     text = try await search.detail(gif)
+                case .generated(let sticker):
+                    text = try await search.detail(sticker)
                 case .loadMore:
                     return
                 }
@@ -275,6 +299,157 @@ final class PickerModel {
             items.removeAll { $0.id == item.id }
             app.announcer.say("Removed.")
             app.refreshCounts()
+        }
+    }
+}
+
+// MARK: Making stickers
+
+extension PickerModel {
+    /// Makes stickers of what's typed: the Generate Sticker button and Command G.
+    func generate() {
+        let query = self.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            app.announcer.say("Type what the sticker should show first, then press Command G.")
+            return
+        }
+        guard !isGenerating else {
+            app.announcer.say("Still making stickers: \(batchProgress.done) of \(batchProgress.total) done.")
+            return
+        }
+        let model = app.settings.stickerModel
+        guard StickerMaker.helperURL != nil else {
+            app.earcons.play(.failed)
+            app.announcer.say(StickerMakerError.helperMissing.errorDescription ?? "")
+            return
+        }
+        guard StickerMaker.isInstalled(model) else {
+            offerDownload(model, for: query)
+            return
+        }
+        generateTask = Task { await makeStickers(of: query, model: model) }
+    }
+
+    /// The first time: ask before downloading, then make the stickers if the picker is still on that search.
+    private func offerDownload(_ model: StickerModel, for query: String) {
+        if let download = app.stickerDownload {
+            app.announcer.say("The sticker maker is still downloading: \(download.percent) percent.")
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Download the sticker maker?"
+        alert.informativeText = "Making stickers needs a one-time download of \(model.spokenSize) from Hugging Face. After that, stickers are made on this Mac, without the internet. You can change the model in Settings."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            guard await app.downloadStickerModel(model), self.query.trimmingCharacters(in: .whitespacesAndNewlines) == query,
+                  !isGenerating, generateTask == nil, isOpen else { return }
+            generate()
+        }
+    }
+
+    /// Stops a batch in progress; what's already made stays.
+    func stopGenerating(because reason: String) {
+        guard isGenerating, let task = generateTask else { return }
+        task.cancel()
+        app.log.add("Stopped making stickers: \(reason)")
+        app.announcer.say("Stopped making stickers.", interrupt: false)
+    }
+
+    private func makeStickers(of query: String, model: StickerModel) async {
+        isGenerating = true
+        let count = StickerIdeas.variations
+        batchProgress = (0, count)
+        defer {
+            isGenerating = false
+            generateTask = nil
+        }
+        Self.removeOldStickerFiles()
+        app.earcons.play(.working)
+        let warm = StickerMaker.isWarm
+        status = "Making \(count) stickers of \(query)…"
+        app.announcer.say("Making \(count) stickers of \(query)." + (warm ? "" : " The very first one takes about a minute while the graphics card gets ready."), interrupt: true)
+
+        let idea = await StickerIdeaWriter.ideas(for: query)
+        app.log.add("Making stickers of \"\(query)\": caption \"\(idea.caption)\", pictures \(idea.pictures)")
+        var made = 0, failures = 0
+        // Each sticker is described while the next one is drawn; announcements stay in order.
+        var describing: Task<Void, Never>?
+        for (index, picture) in idea.pictures.enumerated() {
+            guard !Task.isCancelled else { break }
+            let started = Date()
+            do {
+                let sticker = try await app.stickerMaker.makeSticker(picture: picture, caption: idea.caption, query: query,
+                                                                     number: madeCount + 1, model: model, in: Self.madeDirectory)
+                guard !Task.isCancelled else { break }
+                madeCount += 1
+                // Newest batch on top, in order within the batch.
+                generatedItems.insert(.generated(sticker), at: made)
+                items.insert(.generated(sticker), at: made)
+                made += 1
+                batchProgress.done = made
+                app.log.add("Drew sticker \(index + 1) in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+                let previous = describing, first = made == 1
+                describing = Task { [weak self] in
+                    guard let self else { return }
+                    var described = sticker
+                    described.reading = await self.search.describe(sticker)
+                    await previous?.value
+                    self.replaceGenerated(described)
+                    guard !Task.isCancelled else { return }
+                    let what = described.reading.map(SpokenText.listLabel) ?? picture
+                    self.status = "Made \(index + 1) of \(count)."
+                    self.app.announcer.say("Sticker \(index + 1) of \(count): \(what)." + (first ? " It's at the top of the list." : ""), interrupt: false)
+                }
+            } catch is CancellationError {
+                break
+            } catch {
+                failures += 1
+                app.log.add("Making sticker \(index + 1) failed: \(error.localizedDescription)")
+                if failures >= 2 || error is StickerMakerError && made == 0 && index == 0 {
+                    describing?.cancel()
+                    app.earcons.play(.failed)
+                    app.announcer.say((error as? LocalizedError)?.errorDescription ?? "Couldn't make stickers.")
+                    return
+                }
+            }
+        }
+        if Task.isCancelled {
+            describing?.cancel()
+            return
+        }
+        await describing?.value
+        app.earcons.play(made > 0 ? .ready : .failed)
+        status = made == count ? "Made \(count) stickers of \(query)." : "Made \(made) of \(count) stickers."
+        if made == count {
+            app.announcer.say("All \(count) are ready. Return pastes one into your chat.", interrupt: false)
+        } else if made == 0 {
+            app.announcer.say("Couldn't make stickers this time. Try again, or a different search.", interrupt: false)
+        }
+    }
+
+    /// Puts a sticker's description into its rows.
+    private func replaceGenerated(_ sticker: GeneratedSticker) {
+        let id = PickerItem.generated(sticker).id
+        if let i = generatedItems.firstIndex(where: { $0.id == id }) { generatedItems[i] = .generated(sticker) }
+        if let i = items.firstIndex(where: { $0.id == id }) { items[i] = .generated(sticker) }
+    }
+
+    static var madeDirectory: URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("StickerSense-made", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Stickers made but never sent are kept for a day (a paste reads the file after the picker closes).
+    static func removeOldStickerFiles() {
+        let dir = madeDirectory
+        let old = Date().addingTimeInterval(-24 * 3600)
+        for file in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+            if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, date < old {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 }
@@ -300,6 +475,11 @@ struct PickerView: View {
                         focus = .list
                         return .handled
                     }
+                if model.canGenerate {
+                    Button(model.isGenerating ? "Making Stickers…" : "Generate Sticker") { model.generate() }
+                        .keyboardShortcut("g", modifiers: .command)
+                        .accessibilityHint("Makes \(StickerIdeas.variations) new stickers of what you typed, on this Mac. Command G.")
+                }
                 Picker("Source", selection: $model.filter) {
                     ForEach(SourceFilter.allCases) { Text($0.title).tag($0) }
                 }
@@ -378,6 +558,7 @@ struct PickerView: View {
         switch item {
         case .library(let record): model.app.library.imagesDirectory.appendingPathComponent(record.imageFile ?? "")
         case .giphy(let gif): gif.smallURL ?? gif.previewURL
+        case .generated(let sticker): sticker.fileURL
         case .loadMore: nil
         }
     }

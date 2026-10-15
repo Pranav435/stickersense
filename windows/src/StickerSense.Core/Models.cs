@@ -107,18 +107,29 @@ public abstract record StickerSource
     /// <summary>Added by hand (or shared in on another platform).</summary>
     public sealed record Imported : StickerSource;
 
+    /// <summary>Made on this computer from a picker search (<paramref name="Prompt"/> is what was typed).</summary>
+    public sealed record Generated(string Prompt) : StickerSource;
+
     public string DisplayName => this switch
     {
         Received r => AppNames.FriendlyName(r.App),
         WhatsApp => "WhatsApp",
         Giphy => "GIPHY",
+        Generated => "Made by you",
         _ => "Imported",
     };
+
+    /// <summary>How a list row ends: "From WhatsApp", or "Made by you".</summary>
+    public string Origin => this is Generated ? "Made by you" : $"From {DisplayName}";
+
+    /// <summary>Words a picker search should also match: what a made sticker was asked for.</summary>
+    public string SearchText => this is Generated g ? g.Prompt : "";
 
     public SourceFilter FilterTag => this switch
     {
         WhatsApp => SourceFilter.WhatsApp,
         Giphy => SourceFilter.Giphy,
+        Generated => SourceFilter.Generated,
         _ => SourceFilter.Received,
     };
 }
@@ -140,6 +151,7 @@ internal sealed class StickerSourceJsonConverter : JsonConverter<StickerSource>
                 case "whatsApp": return new StickerSource.WhatsApp(Field("relativePath"));
                 case "giphy": return new StickerSource.Giphy(Field("id"));
                 case "imported": return new StickerSource.Imported();
+                case "generated": return new StickerSource.Generated(Field("prompt"));
             }
         }
         return new StickerSource.Imported();
@@ -162,6 +174,10 @@ internal sealed class StickerSourceJsonConverter : JsonConverter<StickerSource>
                 writer.WriteStartObject("giphy");
                 writer.WriteString("id", g.Id);
                 break;
+            case StickerSource.Generated g:
+                writer.WriteStartObject("generated");
+                writer.WriteString("prompt", g.Prompt);
+                break;
             default:
                 writer.WriteStartObject("imported");
                 break;
@@ -177,6 +193,7 @@ public enum SourceFilter
     Received,
     WhatsApp,
     Giphy,
+    Generated,
 }
 
 public static class SourceFilters
@@ -186,6 +203,7 @@ public static class SourceFilters
         SourceFilter.All => "All",
         SourceFilter.Received => "Received",
         SourceFilter.WhatsApp => "WhatsApp",
+        SourceFilter.Generated => "Made by you",
         _ => "GIPHY",
     };
 }

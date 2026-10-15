@@ -70,8 +70,12 @@ internal sealed class QwenModel : IEngineModel
         try
         {
             var prompt = QwenVisionPrompt.Build(request.Instructions, request.Prompt, pictures.Count, request.ReplyStart);
-            Images images;
-            if (pictures.Count == 1)
+            Images? images;
+            if (pictures.Count == 0)
+            {
+                images = null; // text only (planning stickers): GenAI's processor takes no pictures
+            }
+            else if (pictures.Count == 1)
             {
                 images = Images.Load(ImagePrep.PngData(pictures[0]));
             }

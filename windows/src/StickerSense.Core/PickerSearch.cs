@@ -215,6 +215,76 @@ public sealed class PickerSearch : IDisposable
         }).ConfigureAwait(false);
     }
 
+    // MARK: Generated stickers
+
+    /// <summary>
+    /// Describes a sticker just made, like any other: what the describer sees, plus the caption
+    /// StickerSense wrote on it (exact, so it isn't left to OCR). Null when it couldn't be described.
+    /// </summary>
+    public async Task<StickerReading?> DescribeAsync(GeneratedSticker sticker, CancellationToken ct = default)
+    {
+        List<Image<Rgba32>>? frames = null;
+        try
+        {
+            frames = await Task.Run(() => ImagePrep.LoadFrames(sticker.FilePath, 1), ct).ConfigureAwait(false);
+            var reading = await pipeline.Describer.ReadAsync(frames, DescriptionContext.File, sticker.Caption, DescribePriority.Foreground, ct).ConfigureAwait(false);
+            return reading with { Text = sticker.Caption };
+        }
+        catch (Exception e) when (e is DescribeException or ImagePrepException or IOException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (frames is not null) foreach (var frame in frames) frame.Dispose();
+        }
+    }
+
+    public async Task<string> DetailAsync(GeneratedSticker sticker, IStickerDescriber describer, CancellationToken ct = default)
+    {
+        List<Image<Rgba32>> frames;
+        try
+        {
+            frames = await Task.Run(() => ImagePrep.LoadFrames(sticker.FilePath, 1), ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is ImagePrepException or IOException)
+        {
+            throw DescribeException.Failed("the sticker is no longer available");
+        }
+        try
+        {
+            return await describer.DetailedAsync(frames, DescriptionContext.File, sticker.Caption, sticker.Reading, DescribePriority.Foreground, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var frame in frames) frame.Dispose();
+        }
+    }
+
+    /// <summary>Records that the user sent a sticker they made, adding it to their library.</summary>
+    public Task MarkSentAsync(GeneratedSticker sticker) => Task.Run(() =>
+    {
+        try
+        {
+            var frames = ImagePrep.LoadFrames(sticker.FilePath, 1);
+            try
+            {
+                var reading = sticker.Reading ?? new StickerReading(StickerKind.Sticker, sticker.Picture, sticker.Caption);
+                // It's a sticker whatever the describer thought, so the library keeps its picture.
+                if (!reading.Kind.IsCollectible()) reading = reading with { Kind = StickerKind.Sticker };
+                var stored = Library.Remember(frames, new Fingerprint(frames[0]), reading, sticker.Caption, new StickerSource.Generated(sticker.Query));
+                Library.MarkSent(stored.Id);
+            }
+            finally
+            {
+                foreach (var frame in frames) frame.Dispose();
+            }
+        }
+        catch (Exception e) when (e is ImagePrepException or IOException)
+        {
+        }
+    });
+
     /// <summary>Downloads the small renditions of a page in the background, six at a time.</summary>
     public void Prefetch(IEnumerable<GiphyItem> gifs)
     {

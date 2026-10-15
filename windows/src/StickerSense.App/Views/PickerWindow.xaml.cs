@@ -6,8 +6,9 @@ using StickerSense.App.Platform;
 namespace StickerSense.App.Views;
 
 /// <summary>
-/// Search box, source filter and results list. Enter in the search box pastes the first result;
-/// Enter on a result pastes it; Shift+F10 opens the actions; Escape returns to the chat.
+/// Search box, Generate sticker button, source filter and results list. Enter in the search box
+/// pastes the first result; Control G makes stickers of the search; Enter on a result pastes it;
+/// Shift+F10 opens the actions; Escape returns to the chat.
 /// </summary>
 internal partial class PickerWindow : Window
 {
@@ -29,12 +30,19 @@ internal partial class PickerWindow : Window
             SearchBox.Focus();
             await model.SearchAsync();
         };
-        PreviewKeyDown += (_, e) =>
+        model.Confirm = (title, message) =>
+            MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
+        PreviewKeyDown += async (_, e) =>
         {
             if (e.Key == Key.Escape)
             {
                 e.Handled = true;
                 Close();
+            }
+            else if (e.Key == Key.G && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                e.Handled = true;
+                await model.GenerateAsync();
             }
         };
         model.MoveFocusTo += FocusItem;
@@ -93,6 +101,8 @@ internal partial class PickerWindow : Window
                 break;
         }
     }
+
+    private async void GenerateButton_Click(object sender, RoutedEventArgs e) => await model.GenerateAsync();
 
     private async void Results_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {

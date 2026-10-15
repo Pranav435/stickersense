@@ -14,17 +14,51 @@ internal sealed class SettingsViewModel : INotifyPropertyChanged
     {
         App = app;
         app.PropertyChanged += AppChanged;
+        app.Settings.PropertyChanged += SettingsChanged;
+    }
+
+    private void SettingsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SettingsStore.StickerModel)) StickerModelChanged();
+    }
+
+    private void StickerModelChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StickerModelSummary)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanDownloadStickerModel)));
     }
 
     private void AppChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(AppServices.StickerDownloadPercent)) StickerModelChanged();
         if (e.PropertyName is nameof(AppServices.LibraryCount) or nameof(AppServices.UndescribedCount))
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LibrarySummary)));
         if (e.PropertyName is nameof(AppServices.EngineStatus))
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EngineSummary)));
     }
 
-    public void Detach() => App.PropertyChanged -= AppChanged;
+    public void Detach()
+    {
+        App.PropertyChanged -= AppChanged;
+        App.Settings.PropertyChanged -= SettingsChanged;
+    }
+
+    public IReadOnlyList<Choice<StickerModel>> StickerModels { get; } =
+        Enum.GetValues<StickerModel>().Select(m => new Choice<StickerModel>(m, StickerMakerCatalog.Title(m))).ToList();
+
+    public string StickerModelSummary
+    {
+        get
+        {
+            var model = Settings.StickerModel;
+            var state = App.StickerDownloadPercent >= 0 ? $"Downloading: {App.StickerDownloadPercent} percent."
+                : App.IsStickerModelInstalled(model) ? "Downloaded."
+                : $"Not downloaded yet ({StickerMakerCatalog.SpokenSize(model)}). It downloads the first time you make a sticker.";
+            return $"{state} {StickerMakerCatalog.Credit(model)}";
+        }
+    }
+
+    public bool CanDownloadStickerModel => App.StickerDownloadPercent < 0 && !App.IsStickerModelInstalled(Settings.StickerModel);
 
     public AppServices App { get; }
     public SettingsStore Settings => App.Settings;
@@ -97,6 +131,8 @@ internal partial class SettingsWindow : Window
     private void GiphyBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => SaveGiphyKey(announce: true);
 
     private async void Import_Click(object sender, RoutedEventArgs e) => await app.ImportWhatsAppAsync();
+
+    private async void DownloadStickerMaker_Click(object sender, RoutedEventArgs e) => await app.DownloadStickerModelAsync(app.Settings.StickerModel);
 
     private void GiphyLink_Click(object sender, RoutedEventArgs e) => OpenUrl("https://developers.giphy.com/dashboard/");
 

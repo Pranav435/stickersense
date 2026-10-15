@@ -70,7 +70,7 @@ public sealed record StickerRecord
     [JsonIgnore]
     public string ScreenReaderLabel => Reading is null
         ? $"Not described yet, from {Source.DisplayName}"
-        : $"{SpokenText.ListLabel(Reading)}. From {Source.DisplayName}";
+        : $"{SpokenText.ListLabel(Reading)}. {Source.Origin}";
 }
 
 /// <summary>Swift's UUID encodes as uppercase text; keep the same so libraries stay interchangeable.</summary>

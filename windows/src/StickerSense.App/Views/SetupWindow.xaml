@@ -81,6 +81,11 @@
                 <Button Content="_Import WhatsApp Stickers" Click="Import_Click"
                         Visibility="{Binding CanImport, Converter={StaticResource VisibleWhen}}" />
 
+                <TextBlock Style="{StaticResource RowTitle}" Text="Sticker maker" />
+                <TextBox Style="{StaticResource Status}" Text="{Binding StickerMaker.Text, Mode=OneWay}" AutomationProperties.Name="{Binding StickerMaker.AccessibleName}" />
+                <Button Content="Download the _sticker maker" Click="DownloadStickerMaker_Click"
+                        Visibility="{Binding CanDownloadStickerMaker, Converter={StaticResource VisibleWhen}}" />
+
                 <TextBlock Style="{StaticResource Heading2}" Text="Try it" />
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,18">
                     <views:PracticeSticker x:Name="Practice" AutomationProperties.HelpText="{Binding PracticeHint}" />

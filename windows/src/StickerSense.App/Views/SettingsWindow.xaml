@@ -111,6 +111,20 @@
                     </StackPanel>
                 </GroupBox>
 
+                <GroupBox Header="Making stickers">
+                    <StackPanel>
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Text="In the sticker picker, type what you want and press Control G: StickerSense makes 4 stickers on this computer and reads each one out as it's ready." />
+                        <Label Content="Sticker _model" Target="{Binding ElementName=StickerModelBox}" />
+                        <ComboBox x:Name="StickerModelBox" ItemsSource="{Binding StickerModels}" DisplayMemberPath="Title" SelectedValuePath="Value"
+                                  SelectedValue="{Binding Settings.StickerModel}" AutomationProperties.Name="Sticker model"
+                                  AutomationProperties.HelpText="Fast is quicker. Better follows your search more closely and is a bigger download." />
+                        <TextBlock TextWrapping="Wrap" Margin="0,6,0,0" Text="{Binding StickerModelSummary}" />
+                        <Button Content="_Download Sticker Maker" Click="DownloadStickerMaker_Click" IsEnabled="{Binding CanDownloadStickerModel}"
+                                AutomationProperties.HelpText="Downloads the chosen sticker model now. Otherwise it downloads the first time you make a sticker." />
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Header="General">
                     <StackPanel>
                         <CheckBox Content="Open StickerSense when I sign _in" IsChecked="{Binding Settings.LaunchAtLogin}" />

@@ -17,12 +17,18 @@ final class AppModel {
     let earcons: Earcons
     let log: DebugLog
     let voiceOver: VoiceOverBridge
+    let stickerMaker = StickerMaker()
 
     var engineStatus: EngineStatus = StickerDescriber.status
     var libraryCount = 0
     var undescribedCount = 0
     var importStatus: String = ""
     var lastUserActivity = Date.distantPast
+    /// The sticker model being downloaded, with how far it's got (0 to 100).
+    var stickerDownload: (model: StickerModel, percent: Int)?
+    /// Bumped when a sticker model finishes downloading, so views re-check what's installed.
+    var stickerModelsChanged = 0
+    private var stickerDownloadTask: Task<Bool, Never>?
 
     private var indexer: Task<Void, Never>?
 
@@ -61,6 +67,55 @@ final class AppModel {
     }
 
     func noteUserActivity() { lastUserActivity = Date() }
+
+    // MARK: Sticker model
+
+    /// Downloads the sticker model, saying how it's going every quarter. Returns whether it's
+    /// installed afterwards. A second call while one is running waits for that one.
+    @discardableResult
+    func downloadStickerModel(_ model: StickerModel) async -> Bool {
+        if let running = stickerDownloadTask { return await running.value && StickerMaker.isInstalled(model) }
+        if StickerMaker.isInstalled(model) { return true }
+        let task = Task<Bool, Never> {
+            stickerDownload = (model, 0)
+            defer {
+                stickerDownload = nil
+                stickerDownloadTask = nil
+                stickerModelsChanged += 1
+            }
+            announcer.say("Downloading the sticker maker, \(model.spokenSize). You can keep using StickerSense meanwhile.", interrupt: false)
+            log.add("Downloading sticker model \(model.rawValue)")
+            do {
+                try await stickerMaker.download(model) { fraction in
+                    Task { @MainActor in self.stickerDownloadProgressed(model, fraction) }
+                }
+                log.add("Sticker model \(model.rawValue) downloaded")
+                earcons.play(.ready)
+                announcer.say("The sticker maker is ready.", interrupt: false)
+                Task { await stickerMaker.warmUp(model) }
+                return true
+            } catch is CancellationError {
+                return false
+            } catch {
+                log.add("Sticker model download failed: \(error.localizedDescription)")
+                earcons.play(.failed)
+                announcer.say((error as? LocalizedError)?.errorDescription ?? "The sticker maker didn't download. Try again later.")
+                return false
+            }
+        }
+        stickerDownloadTask = task
+        return await task.value
+    }
+
+    private func stickerDownloadProgressed(_ model: StickerModel, _ fraction: Double) {
+        let percent = Int(fraction * 100)
+        let previous = stickerDownload?.percent ?? 0
+        guard stickerDownload != nil, percent > previous else { return }
+        stickerDownload = (model, percent)
+        if percent / 25 > previous / 25, percent < 100 {
+            announcer.say("Sticker maker download: \(percent / 25 * 25) percent.", interrupt: false)
+        }
+    }
 
     // MARK: WhatsApp import
 

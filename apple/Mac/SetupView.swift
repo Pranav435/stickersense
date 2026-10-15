@@ -25,6 +25,7 @@ final class SetupModel {
     var screenRecording: State = .needsAction("Checking…")
     var accessibility: State = .needsAction("Checking…")
     var whatsApp: State = .optional("")
+    var stickerMaker: State = .optional("")
     private var poller: Task<Void, Never>?
 
     init(app: AppModel) {
@@ -76,9 +77,22 @@ final class SetupModel {
         } else {
             whatsApp = .optional("Optional: import your WhatsApp stickers so you can find and send them from the picker.")
         }
+
+        let stickerModel = app.settings.stickerModel
+        if StickerMaker.isInstalled(stickerModel) {
+            stickerMaker = .ok("The sticker maker is ready: type in the picker and press Command G to make your own stickers.")
+        } else if let download = app.stickerDownload {
+            stickerMaker = .optional("Downloading the sticker maker: \(download.percent) percent.")
+        } else {
+            stickerMaker = .optional("Optional: download the sticker maker (\(stickerModel.spokenSize)) now, so the picker can make stickers on this Mac. Otherwise it downloads the first time you make one.")
+        }
     }
 
     // MARK: Actions
+
+    func downloadStickerMaker() {
+        Task { await app.downloadStickerModel(app.settings.stickerModel) }
+    }
 
     func openAppleIntelligenceSettings() {
         open("x-apple.systempreferences:com.apple.Siri-Settings.extension")
@@ -132,6 +146,7 @@ struct SetupView: View {
                 SetupRow(title: "WhatsApp stickers", state: model.whatsApp, actionTitle: "Import WhatsApp Stickers") {
                     Task { await model.app.importWhatsApp() }
                 }
+                SetupRow(title: "Sticker maker", state: model.stickerMaker, actionTitle: "Download Sticker Maker", action: model.downloadStickerMaker)
 
                 Text("Try it").font(.title2).bold().accessibilityAddTraits(.isHeader)
                 HStack(alignment: .center, spacing: 16) {

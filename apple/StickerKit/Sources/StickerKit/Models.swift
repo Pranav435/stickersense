@@ -43,6 +43,8 @@ public enum StickerSource: Codable, Sendable, Hashable {
     case giphy(id: String)
     /// Shared into the app (iOS share extension) or added by hand.
     case imported
+    /// Made on this device from a picker search (`prompt` is what was typed).
+    case generated(prompt: String)
 
     public var displayName: String {
         switch self {
@@ -50,6 +52,7 @@ public enum StickerSource: Codable, Sendable, Hashable {
         case .whatsApp: "WhatsApp"
         case .giphy: "GIPHY"
         case .imported: "Imported"
+        case .generated: "Made by you"
         }
     }
 
@@ -59,12 +62,25 @@ public enum StickerSource: Codable, Sendable, Hashable {
         case .whatsApp: .whatsApp
         case .giphy: .giphy
         case .imported: .received
+        case .generated: .generated
         }
+    }
+
+    /// How a list row ends: "From WhatsApp", or "Made by you".
+    public var origin: String {
+        if case .generated = self { return "Made by you" }
+        return "From \(displayName)"
+    }
+
+    /// Words a picker search should also match: what a made sticker was asked for.
+    public var searchText: String {
+        if case .generated(let prompt) = self { return prompt }
+        return ""
     }
 }
 
 public enum SourceFilter: String, CaseIterable, Sendable, Identifiable {
-    case all, received, whatsApp, giphy
+    case all, received, whatsApp, giphy, generated
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -72,6 +88,7 @@ public enum SourceFilter: String, CaseIterable, Sendable, Identifiable {
         case .received: "Received"
         case .whatsApp: "WhatsApp"
         case .giphy: "GIPHY"
+        case .generated: "Made by you"
         }
     }
 }

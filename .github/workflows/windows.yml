@@ -1,0 +1,100 @@
+# Builds and tests StickerSense for Windows on GitHub's Windows runners, then packages the app
+# and makes real stickers with it (stable-diffusion.cpp on the processor, Qwen3-VL 2B planning
+# captions and describing them). The stickers are uploaded as an artifact to look at.
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and unit tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Unit tests
+        run: dotnet test windows/tests/StickerSense.Core.Tests --configuration Release --logger "console;verbosity=normal"
+      - name: Build the app
+        run: dotnet build windows/src/StickerSense.App --configuration Release
+
+  make-stickers:
+    name: Package and make stickers
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      APP: ${{ github.workspace }}\publish\StickerSense
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Package the app (with the sticker maker, without the description model)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1 -SkipModel -SkipNvdaController -Output $env:APP
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:APP\sd" | Select-Object Name, Length | Format-Table | Out-String | Write-Host
+
+      # Models live in %LOCALAPPDATA%\StickerSense\models, like on a user's PC. Cached between runs.
+      - name: Restore the models
+        id: models
+        uses: actions/cache/restore@v4
+        with:
+          path: ~\AppData\Local\StickerSense\models
+          key: stickersense-models-qwen-sdxs-isnet-v1
+
+      - name: Download the description model (Qwen3-VL 2B)
+        shell: pwsh
+        run: |
+          & "$env:APP\StickerSense.exe" --download-model qwen | Write-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Make stickers of "corgi saying thank you" (downloads the sticker maker's models)
+        shell: pwsh
+        run: |
+          & "$env:APP\StickerSense.exe" --make-sticker "corgi saying thank you" --download --out "$env:GITHUB_WORKSPACE\stickers\corgi" | Write-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Save the models
+        if: always() && steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~\AppData\Local\StickerSense\models
+          key: stickersense-models-qwen-sdxs-isnet-v1
+
+      - name: Make stickers of "sleepy panda" and "lol"
+        shell: pwsh
+        run: |
+          & "$env:APP\StickerSense.exe" --make-sticker "sleepy panda" --count 2 --out "$env:GITHUB_WORKSPACE\stickers\panda" | Write-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:APP\StickerSense.exe" --make-sticker "lol" --count 2 --out "$env:GITHUB_WORKSPACE\stickers\lol" | Write-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload the stickers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stickers
+          path: stickers
+          if-no-files-found: ignore
+
+      - name: Upload the activity log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-log
+          path: ~\AppData\Local\StickerSense\StickerSense.log
+          if-no-files-found: ignore

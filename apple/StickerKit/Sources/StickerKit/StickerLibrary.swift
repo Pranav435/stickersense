@@ -28,7 +28,7 @@ public struct StickerRecord: Codable, Identifiable, Sendable, Hashable {
     /// What VoiceOver reads for this row in lists.
     public var accessibilityLabel: String {
         guard let reading else { return "Not described yet, from \(source.displayName)" }
-        return "\(SpokenText.listLabel(reading)). From \(source.displayName)"
+        return "\(SpokenText.listLabel(reading)). \(source.origin)"
     }
 }
 
@@ -341,7 +341,7 @@ public actor StickerLibrary {
             guard record.isDescribed, record.timesSeen > 0 else { return false }
             switch record.source {
             case .received, .imported: return true
-            case .whatsApp, .giphy: return false
+            case .whatsApp, .giphy, .generated: return false
             }
         }.sorted { $0.lastSeenAt > $1.lastSeenAt }.prefix(limit))
     }
@@ -383,6 +383,7 @@ public actor StickerLibrary {
             (record.reading?.vibe ?? "", 2),
             (record.detailed ?? "", 1),
             (record.reading?.kind.rawValue ?? "", 1),
+            (record.source.searchText, 2),
         ]
         let fieldWords = fields.map { (Set(tokens($0.0)), $0.1) }
         var total = 0.0

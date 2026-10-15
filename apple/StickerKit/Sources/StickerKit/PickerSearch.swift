@@ -1,10 +1,40 @@
 import CoreGraphics
 import Foundation
 
+/// A sticker made on this device from a picker search. It only joins the library once it's
+/// pasted or copied.
+public struct GeneratedSticker: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    /// What was typed in the search.
+    public let query: String
+    /// The words written on it (empty for none).
+    public let caption: String
+    /// What the image model was asked to draw.
+    public let picture: String
+    /// The finished sticker: a transparent PNG.
+    public let fileURL: URL
+    /// Its place in the batch, from 1.
+    public let number: Int
+    /// The on-device description, once it's been described.
+    public var reading: StickerReading?
+
+    public init(id: UUID = UUID(), query: String, caption: String, picture: String, fileURL: URL, number: Int, reading: StickerReading? = nil) {
+        self.id = id
+        self.query = query
+        self.caption = caption
+        self.picture = picture
+        self.fileURL = fileURL
+        self.number = number
+        self.reading = reading
+    }
+}
+
 /// One row in the sticker picker.
 public enum PickerItem: Identifiable, Hashable, Sendable {
     case library(StickerRecord)
     case giphy(GiphyItem)
+    /// A sticker just made from the search.
+    case generated(GeneratedSticker)
     /// "More GIPHY results" — the last row while GIPHY has more pages.
     case loadMore
 
@@ -12,12 +42,18 @@ public enum PickerItem: Identifiable, Hashable, Sendable {
         switch self {
         case .library(let r): "lib-\(r.id.uuidString)"
         case .giphy(let g): "gif-\(g.kind.rawValue)-\(g.id)"
+        case .generated(let g): "gen-\(g.id.uuidString)"
         case .loadMore: "load-more"
         }
     }
 
     public var giphy: GiphyItem? {
         if case .giphy(let g) = self { return g }
+        return nil
+    }
+
+    public var generated: GeneratedSticker? {
+        if case .generated(let g) = self { return g }
         return nil
     }
 }
@@ -146,6 +182,7 @@ public actor PickerSearch {
         switch item {
         case .library(let record): return await library.imageURL(for: record)
         case .giphy(let gif): return await download(gif.originalURL, name: "\(gif.id).gif")
+        case .generated(let sticker): return sticker.fileURL
         case .loadMore: return nil
         }
     }
@@ -161,9 +198,33 @@ public actor PickerSearch {
                   let frames = try? ImagePrep.frames(from: url, maxFrames: 16), let first = frames.first else { return }
             let record = await library.remember(frames: frames, fingerprint: Fingerprint(first), reading: reading, ocrText: "", source: .giphy(id: gif.id), remoteURL: gif.originalURL)
             await library.markSent(record.id)
+        case .generated(let sticker):
+            guard let image = try? ImagePrep.frames(from: sticker.fileURL, maxFrames: 1).first else { return }
+            var reading = sticker.reading ?? StickerReading(kind: .sticker, subject: sticker.picture, text: sticker.caption)
+            // It's a sticker whatever the describer thought, so the library keeps its picture.
+            if !reading.kind.isCollectible { reading.kind = .sticker }
+            let record = await library.remember(frames: [image], fingerprint: Fingerprint(image), reading: reading, ocrText: sticker.caption,
+                                                source: .generated(prompt: sticker.query))
+            await library.markSent(record.id)
         case .loadMore:
             break
         }
+    }
+
+    // MARK: Generated stickers
+
+    /// Describes a sticker just made, like any other: what the describer sees, plus the caption
+    /// StickerSense wrote on it (exact, so it isn't left to OCR).
+    public func describe(_ sticker: GeneratedSticker) async -> StickerReading? {
+        guard let image = try? ImagePrep.frames(from: sticker.fileURL, maxFrames: 1).first,
+              var reading = try? await describer.read(frames: [image], context: .file, ocrText: sticker.caption) else { return nil }
+        reading.text = sticker.caption
+        return reading
+    }
+
+    public func detail(_ sticker: GeneratedSticker) async throws -> String {
+        guard let image = try? ImagePrep.frames(from: sticker.fileURL, maxFrames: 1).first else { throw DescribeError.failed("the sticker is no longer available") }
+        return try await describer.detailed(frames: [image], context: .file, ocrText: sticker.caption, shortReading: sticker.reading)
     }
 
     /// Downloads small renditions six at a time.
@@ -262,6 +323,8 @@ public extension PickerItem {
             let kind = gif.kind == .sticker ? "GIPHY sticker" : "GIF"
             if let reading { return "\(kind): \(SpokenText.listLabel(reading))" }
             return "\(kind): \(gif.cleanTitle), from GIPHY"
+        case .generated(let sticker):
+            return GeneratedSticker.label(sticker)
         case .loadMore:
             return "More GIPHY results"
         }
@@ -287,5 +350,15 @@ public extension PickerItem {
         }
         if giphyPending { counts += ", GIPHY still loading" }
         return "\(counts). First: \(firstLabel ?? ""). \(sendHint)" + suffix
+    }
+}
+
+public extension GeneratedSticker {
+    /// "New sticker 2: Corgi waving its paw, “Thank you”", or what was asked for while it's
+    /// still being described.
+    static func label(_ sticker: GeneratedSticker) -> String {
+        if let reading = sticker.reading { return "New sticker \(sticker.number): \(SpokenText.listLabel(reading))" }
+        let words = sticker.caption.isEmpty ? "" : ", “\(sticker.caption)”"
+        return "New sticker \(sticker.number): \(sticker.picture)\(words), still being described"
     }
 }

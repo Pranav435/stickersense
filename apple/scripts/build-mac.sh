@@ -38,6 +38,23 @@ fi
 
 command -v xcodegen >/dev/null || { echo "Install XcodeGen first: brew install xcodegen"; exit 1; }
 
+# The sticker maker: stable-diffusion.cpp's sd-cli and its library (MIT), from a pinned release,
+# checked against its SHA-256 and cut down to Apple silicon. Kept in the staging folder.
+SD_RELEASE="master-964-1d0a58a"
+SD_ZIP="sd-master-1d0a58a-bin-Darwin-macOS-26.6.2-arm64.zip"
+SD_SHA256="45001839e925f98ecd18ef5251725f74cff874eeac4599f1136acba65b26911e"
+SD_DIR="$STAGE/sd-cpp/$SD_RELEASE"
+if [[ ! -x "$SD_DIR/sd-cli" || ! -f "$SD_DIR/libstable-diffusion.dylib" ]]; then
+  echo "Downloading stable-diffusion.cpp $SD_RELEASE for the sticker maker"
+  rm -rf "$SD_DIR" && mkdir -p "$SD_DIR"
+  curl -sSL --fail -o "$SD_DIR/$SD_ZIP" "https://github.com/leejet/stable-diffusion.cpp/releases/download/$SD_RELEASE/$SD_ZIP"
+  echo "$SD_SHA256  $SD_DIR/$SD_ZIP" | shasum -a 256 -c - >/dev/null || { echo "The stable-diffusion.cpp download didn't match its checksum"; exit 1; }
+  unzip -q -o "$SD_DIR/$SD_ZIP" -d "$SD_DIR/universal"
+  lipo "$SD_DIR/universal/sd-cli" -thin arm64 -output "$SD_DIR/sd-cli"
+  lipo "$SD_DIR/universal/libstable-diffusion.dylib" -thin arm64 -output "$SD_DIR/libstable-diffusion.dylib"
+  cp "$SD_DIR/universal/stable-diffusion.cpp.txt" "$SD_DIR/universal/ggml.txt" "$SD_DIR/"
+fi
+
 mkdir -p "$STAGE/src"
 rsync -a --delete --exclude '.build' --exclude '*.xcodeproj' --exclude '.swiftpm' "$ROOT/" "$STAGE/src/"
 cd "$STAGE/src"
@@ -59,7 +76,17 @@ mkdir -p "$INSTALL_DIR"
 [[ "$INSTALL_DIR" == "$HOME/Applications" ]] && { pkill -x StickerSense 2>/dev/null || true; }
 rm -rf "$INSTALL_DIR/StickerSense.app"
 ditto "$APP" "$INSTALL_DIR/StickerSense.app"
+# sd-cli finds its library next to itself (@executable_path).
+cp "$SD_DIR/sd-cli" "$SD_DIR/libstable-diffusion.dylib" "$INSTALL_DIR/StickerSense.app/Contents/MacOS/"
+mkdir -p "$INSTALL_DIR/StickerSense.app/Contents/Resources/Licenses"
+cp "$SD_DIR/stable-diffusion.cpp.txt" "$INSTALL_DIR/StickerSense.app/Contents/Resources/Licenses/stable-diffusion.cpp.txt"
+cp "$SD_DIR/ggml.txt" "$INSTALL_DIR/StickerSense.app/Contents/Resources/Licenses/ggml.txt"
 xattr -cr "$INSTALL_DIR/StickerSense.app"
+
+# Inside out: the sticker maker's pieces first, then the app around them.
+for helper in libstable-diffusion.dylib sd-cli; do
+  codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$INSTALL_DIR/StickerSense.app/Contents/MacOS/$helper"
+done
 
 codesign --force --deep --options runtime --timestamp=none \
   --entitlements Mac/StickerSense.entitlements \

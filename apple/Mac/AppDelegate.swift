@@ -6,6 +6,10 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static func main() {
+        if CommandLine.arguments.contains("--make-sticker") {
+            Task { @MainActor in exit(await MakeStickerCommand.run(CommandLine.arguments)) }
+            dispatchMain()
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

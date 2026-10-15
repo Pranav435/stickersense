@@ -269,12 +269,56 @@ public sealed class HuggingFaceDownloader
                 continue;
             }
             var before = done;
-            await DownloadFileAsync(ModelCatalog.Repository(variant), file, target, bytes => progress?.Report(new DownloadProgress(before + bytes, total, name)), ct).ConfigureAwait(false);
+            await DownloadFileAsync($"https://huggingface.co/{ModelCatalog.Repository(variant)}/resolve/main/{file.Path}", file.Size, target,
+                bytes => progress?.Report(new DownloadProgress(before + bytes, total, name)), ct).ConfigureAwait(false);
             done += file.Size;
         }
         ModelCatalog.WriteMarker(destination, variant);
         File.Delete(Path.Combine(destination, InProgressFile));
         progress?.Report(new DownloadProgress(total, total, ""));
+    }
+
+    /// <summary>
+    /// Downloads files from anywhere (the sticker maker's models), resuming partial ones, into the
+    /// paths given, and checks each against its size and SHA-256. Files already there are kept.
+    /// </summary>
+    public async Task DownloadFilesAsync(IReadOnlyList<(ModelFile File, string Path)> files, IProgress<DownloadProgress>? progress, CancellationToken ct = default)
+    {
+        var total = files.Sum(f => f.File.Size);
+        var already = files.Sum(f => ExistingBytes(f.Path, f.File.Size));
+        if (files.FirstOrDefault() is { Path: { } first } && Path.GetDirectoryName(first) is { } folder)
+        {
+            Directory.CreateDirectory(folder);
+            EnsureDiskSpace(folder, total - already);
+        }
+        long done = 0;
+        foreach (var (file, target) in files)
+        {
+            if (File.Exists(target) && new FileInfo(target).Length == file.Size)
+            {
+                done += file.Size;
+                progress?.Report(new DownloadProgress(done, total, file.Name));
+                continue;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            var before = done;
+            await DownloadFileAsync(file.Url, file.Size, target, bytes => progress?.Report(new DownloadProgress(before + bytes, total, file.Name)), ct).ConfigureAwait(false);
+            if (!string.Equals(await Task.Run(() => StickerMakerCatalog.Sha256Of(target), ct).ConfigureAwait(false), file.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(target);
+                throw new ModelDownloadException($"{file.Name} didn't download correctly (its checksum is wrong). Try again.");
+            }
+            done += file.Size;
+        }
+        progress?.Report(new DownloadProgress(total, total, ""));
+    }
+
+    private static long ExistingBytes(string target, long size)
+    {
+        var file = new FileInfo(target);
+        if (file.Exists && file.Length == size) return size;
+        var part = new FileInfo(target + ".part");
+        return part.Exists ? Math.Min(part.Length, size) : 0;
     }
 
     private const string InProgressFile = ".stickersense-downloading";
@@ -329,12 +373,11 @@ public sealed class HuggingFaceDownloader
         }
     }
 
-    private async Task DownloadFileAsync(string repository, RemoteFile file, string target, Action<long> report, CancellationToken ct)
+    private async Task DownloadFileAsync(string uri, long size, string target, Action<long> report, CancellationToken ct)
     {
         var part = target + ".part";
         var offset = File.Exists(part) ? new FileInfo(part).Length : 0;
-        if (offset > file.Size) offset = 0;
-        var uri = $"https://huggingface.co/{repository}/resolve/main/{file.Path}";
+        if (offset > size) offset = 0;
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -366,12 +409,12 @@ public sealed class HuggingFaceDownloader
                     }
                     offset = written;
                 }
-                if (file.Size > 0 && offset != file.Size)
+                if (size > 0 && offset != size)
                 {
-                    throw new IOException($"{Path.GetFileName(target)} ended early ({offset} of {file.Size} bytes).");
+                    throw new IOException($"{Path.GetFileName(target)} ended early ({offset} of {size} bytes).");
                 }
                 File.Move(part, target, overwrite: true);
-                report(file.Size);
+                report(size);
                 return;
             }
             catch (Exception e) when (e is IOException or HttpRequestException && attempt < 4 && !ct.IsCancellationRequested)
