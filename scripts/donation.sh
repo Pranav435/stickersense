@@ -1,7 +1,7 @@
 #!/bin/bash
 # Records a donation in the README, then commits and pushes it.
 #   scripts/donation.sh 5            adds $5 to the notarization fund
-#   scripts/donation.sh 5 "Ada L."   also lists Ada L. under "Fueled by"
+#   scripts/donation.sh 5 "Ada L."   also lists Ada L. under "Thanks to"
 # Only list people who asked to be listed.
 set -euo pipefail
 cd "$(dirname "$0")/.."

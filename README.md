@@ -1,72 +1,88 @@
 # StickerSense
 
-Someone sends you a sticker. Your screen reader, ever the diplomat, says "sticker". Thanks. Was it a cat crying with laughter, or a passive-aggressive thumbs up? Should you reply "haha" or apologise? Without knowing what's in it, you can only guess.
-
-StickerSense describes stickers, GIFs and pictures out loud, in any app, for people who use a screen reader: VoiceOver on a Mac, and NVDA, JAWS or Narrator on Windows. It runs on your own computer. It's quick enough that you'll hear what the sticker shows before the moment has passed.
-
-> "Dog with tongue out and wide eyes, 'idk lol'."
+> **A friend:** *sends a sticker*
 >
-> That's a real description, straight from StickerSense's own tests.
+> **Your screen reader:** "Sticker."
+>
+> **StickerSense:** "Dog with tongue out and wide eyes, 'idk lol'."
 
-Free, no ads, no tracking. If it saves you from answering a crying sticker with "lol", [buy its developer a coffee](#donate).
+That last line is a real description from StickerSense's tests.
 
-## What it does
+StickerSense says what's in the stickers, GIFs and pictures people send you, out loud, in any app. It's made for people who use a screen reader: VoiceOver on a Mac, and NVDA, JAWS or Narrator on Windows. It runs on your own computer, quickly enough that you hear the sticker before the conversation has moved on.
 
-- **Describes what you're on.** Put your screen reader on a sticker and press the describe shortcut: Option Shift Command D on a Mac, Control Alt Shift D on Windows. You hear a short description. Press it again within 3 seconds and you get the director's cut: colours, art style, what moves, and what people mean when they send it.
-- **Describes stickers automatically.** In WhatsApp, Messages, Telegram, Discord, Signal, Slack, Messenger and chat websites, when you rest on a sticker or GIF, StickerSense speaks right after your screen reader's own announcement. Come back to it later and it speaks again, instantly. No keypress needed.
-- **Describes animations.** It grabs a few frames and tells you what happens: "Yellow cat, eyes open, then become hearts while mouth opens." Animated stickers no longer just "move" at you.
-- **Reads the words on stickers exactly.** It uses on-device text recognition, and it only reports words that are really there. The language model is a fine describer but a creative reader; it once insisted a dumpling said "red lips, green eyes". So it no longer gets a vote on what the text says.
-- **Ignores group chat clutter.** The sender's name and timestamp are painted out before describing, so "Ana" is never read as the sticker's caption.
-- **Remembers everything it describes.** The second time a sticker turns up, from anyone, the description is instant.
-- **Includes a sticker picker made for screen readers.** Type two colons (::) in a chat, or press the picker shortcut, then search by what a sticker shows, says or means: "birthday", "lol", "thank you". It searches stickers you've heard, your WhatsApp stickers, and GIPHY 50 at a time. Choose one and it's pasted into your chat, replacing the colons. It never presses Send for you; that's still your decision. The exception is WhatsApp on a Mac, which turns anything pasted into a photo: there, still stickers go through WhatsApp's own sticker maker and are sent as real stickers straight away, as if you'd tapped one in WhatsApp's sticker tray.
-- **Makes your own stickers.** Can't find the right one? Press Command G in the picker (Control G on Windows) and StickerSense makes 4 stickers of what you typed, on your own computer: a cut-out character with a white die-cut border, and your words written on it exactly ("thank you", "lol"). Each one is described out loud as it's ready, so you know what you're sending. Only the ones you send are kept.
-- **Keeps a history** of everything described, with the detailed version one keypress away.
+It works the other way round too. Search for a sticker to send, and if the right one doesn't exist, StickerSense draws it for you.
+
+It's free and open source, with no account, ads or tracking.
+
+## What you'll hear
+
+- **The sticker you're on.** Put your screen reader on a sticker and press Option Shift Command D on a Mac, or Control Alt Shift D on Windows, for a short description. Press it again within 3 seconds for the long version: colours, art style, what moves, and what people mean when they send it.
+- **Stickers as you reach them.** In WhatsApp, Messages, Telegram, Discord, Signal, Slack, Messenger and chat websites, a sticker or GIF is described as soon as you land on it, right after your screen reader's own announcement. Come back to it later and you hear it again, instantly. No keypress needed.
+- **What happens in animations.** StickerSense looks at a few frames and tells you the plot: "Yellow cat, eyes open, then become hearts while mouth opens." Animated stickers no longer just "move" at you.
+- **The exact words.** On-device text recognition reads the words on a sticker, and StickerSense only reports words that are really there. The language model is a fine describer but a creative reader; it once insisted a dumpling said "red lips, green eyes". It no longer gets a vote on what the text says.
+- **The sticker, not the sender.** In group chats, the sender's name and the time are painted out before describing, so "Ana" is never read as the sticker's caption.
+- **Repeats, instantly.** Everything StickerSense describes is remembered. The second time a sticker turns up, from anyone, there's no wait.
+- **Your history.** Every description is kept, with the long version one keypress away.
+
+## Sending stickers
+
+Type two colons (::) in a chat, or press Option Shift Command S on a Mac (Control Alt Shift S on Windows), to open the sticker picker. Search by what a sticker shows, says or means: "birthday", "lol", "thank you". It looks through the stickers you've heard, your WhatsApp stickers, and GIPHY, 50 at a time. Pick one and it's pasted into your chat in place of the colons. Pressing Send is still up to you.
+
+### Making your own
+
+When the search comes up short, press Command G (Control G on Windows), or the Generate sticker button that appears once you've typed something. StickerSense makes 4 stickers of what you typed, on your own computer: a cartoon character, cut out, with a white die-cut border and your words written on it. Image models can't spell, so StickerSense writes the words itself.
+
+Each one is described as soon as it's ready, so you know which corgi is bowing politely and which one is holding something nobody asked for. Only the stickers you send are kept, under Made by you.
+
+All 4 take about 15 seconds on an Apple silicon Mac. On a Windows PC without a graphics card, the first is ready after about 45 seconds and all 4 after about 2 minutes. The first time, StickerSense asks before downloading the sticker model: 900 MB on a Mac, 1.1 GB on Windows.
+
+### In WhatsApp
+
+WhatsApp turns any picture you paste into a photo, so a pasted sticker arrives as a big square with a white background. On a Mac, StickerSense goes around that: still stickers are made into real stickers with WhatsApp's own sticker maker and sent straight away, as if you'd tapped one in WhatsApp's sticker tray. It needs WhatsApp in English. On Windows, WhatsApp still gets a photo for now.
 
 ## Install
 
-### On a Mac
-
-With [Homebrew](https://brew.sh), and `brew upgrade` keeps it current:
+### Mac
 
 ```sh
 brew install --cask pranav435/tap/stickersense
 ```
 
-Or by hand: download `StickerSense-Mac.zip` from [Releases](https://github.com/Pranav435/stickersense/releases/latest), unzip it, and move StickerSense to Applications.
+That's [Homebrew](https://brew.sh); `brew upgrade` fetches each new version. You can also download `StickerSense-Mac.zip` from [Releases](https://github.com/Pranav435/stickersense/releases/latest), unzip it, and move StickerSense to Applications.
 
-Either way, the first launch takes one extra step because the app isn't notarized. Notarizing costs $99 a year, and StickerSense costs nothing ([Donate](#donate) has a plan for that). Open StickerSense once, then go to System Settings › Privacy & Security and choose **Open Anyway**, or run:
+macOS refuses to open StickerSense the first time, because it isn't notarized. Notarization is Apple's $99-a-year stamp of approval, and [Donate](#donate) is saving up for it. Until then, open StickerSense once, then choose **Open Anyway** in System Settings › Privacy & Security, or run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/StickerSense.app
 ```
 
-Requires macOS 27 or later on Apple silicon, with Apple Intelligence turned on. When it opens, the Setup window asks you to:
+You need macOS 27 or later on Apple silicon, with Apple Intelligence turned on. The Setup window then walks you through:
 
-- allow VoiceOver to be controlled with AppleScript (in VoiceOver Utility, General);
-- give Screen Recording and Accessibility permission;
-- optionally import your WhatsApp stickers;
-- try it out on a practice sticker.
+- allowing VoiceOver to be controlled with AppleScript (in VoiceOver Utility, General);
+- Screen Recording and Accessibility permission;
+- importing your WhatsApp stickers, if you'd like;
+- a practice sticker.
 
 The full Mac guide, troubleshooting included, is in [apple/README.md](apple/README.md).
 
-### On Windows
+### Windows
 
-1. From [Releases](https://github.com/Pranav435/stickersense/releases/latest), download `StickerSense-Windows-x64.zip`. It's about 1.5 GB because it includes the on-device model, so StickerSense works the moment it's unzipped. On a slow connection, download `StickerSense-Windows-x64-app-only.zip` (about 100 MB) instead, and Setup downloads the model (1.4 GB) for you.
+1. From [Releases](https://github.com/Pranav435/stickersense/releases/latest), download `StickerSense-Windows-x64.zip`. It's about 1.3 GB because the description model is inside, so StickerSense works as soon as it's unzipped. On a slow connection, download `StickerSense-Windows-x64-app-only.zip` (about 120 MB) instead, and Setup downloads the model (1.4 GB) for you.
 2. Extract it: select the zip in File Explorer, open its context menu with the Applications key or Shift+F10, and choose Extract All. A folder such as `Apps\StickerSense` in your user folder works well.
-3. Run `StickerSense.exe`. It isn't code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway. You only do this once.
-4. The Setup window checks your screen reader and the model, and has a practice sticker. NVDA users get speech and braille through NVDA directly; the helper file that needs comes in the download.
+3. Run `StickerSense.exe`. It isn't code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway. Windows only asks once.
+4. The Setup window checks your screen reader and the model, and has a practice sticker. NVDA users get speech and braille through NVDA directly; the helper file for that is in the download.
 
-Requires Windows 10 (version 1809 or later) or Windows 11, 64-bit, with 8 GB of memory. No graphics card needed.
+You need Windows 10 (version 1809 or later) or Windows 11, 64-bit, with 8 GB of memory. No graphics card needed.
 
-Once it's running, StickerSense lives in the notification area. Every one of its windows is an ordinary window on the taskbar, so Alt+Tab reaches it, and starting StickerSense again brings up its main window. The full Windows guide, with NVDA, JAWS and Narrator tips and troubleshooting, is in [windows/README.md](windows/README.md).
+StickerSense lives in the notification area. Its windows are ordinary taskbar windows, so Alt+Tab reaches them, and starting StickerSense again brings up its main window. The full Windows guide, with NVDA, JAWS and Narrator tips and troubleshooting, is in [windows/README.md](windows/README.md).
 
-### On iPhone and iPad
+### iPhone and iPad
 
-Not released yet. The app builds from source (iOS 27, Apple Intelligence): a Back Tap or Action button shortcut describes the stickers on screen, newest first, plus a share sheet option, Control Center controls and the picker. See [apple/README.md](apple/README.md#iphone-and-ipad).
+Not released yet. The app builds from source (iOS 27, Apple Intelligence): a Back Tap or Action button shortcut describes the stickers on screen, newest first, and there's a share sheet option, Control Center controls and the picker. See [apple/README.md](apple/README.md#iphone-and-ipad).
 
 ## Shortcuts
 
-All of these work from any app. You can change the letter keys in Settings.
+They all work from any app, and you can change the letter keys in Settings.
 
 | What it does | Mac | Windows |
 |---|---|---|
@@ -87,21 +103,21 @@ Forgot them? On a Mac, choose "What Can StickerSense Do?" from the menu bar menu
 | The detailed description | about 2.5 seconds | 8 to 14 seconds |
 | A sticker it's seen before | instant | instant |
 
-It also stays out of your screen reader's way. It only checks what you're on after you press a key (on Windows, when focus moves), goes quiet while you switch apps, and describes your imported stickers only once you've left the computer alone for 90 seconds. Your screen reader should feel exactly as quick as before.
+StickerSense also stays out of your screen reader's way. It only checks what you're on after you press a key (on Windows, when focus moves), keeps quiet while you switch apps, and describes your imported stickers only after you've left the computer alone for 90 seconds. Your screen reader should feel exactly as quick as before. If it doesn't, that's a bug: please [open an issue](#contributing).
 
 ## How it works
 
-1. **Find the item.** On a Mac, StickerSense asks VoiceOver, through VoiceOver's AppleScript support, where its cursor is and what it's saying. On Windows, it follows UI Automation focus and the item's accessible name. On iPhone, a shortcut takes a screenshot.
+1. **Find the item.** On a Mac, StickerSense asks VoiceOver, through its AppleScript support, where its cursor is and what it's saying. On Windows, it follows UI Automation focus and the item's accessible name. On iPhone, a shortcut takes a screenshot.
 2. **Look at it.** It captures only that rectangle of the screen, plus a few more frames if anything moves.
-3. **Read and describe.** Text recognition built into the system (Apple's Vision framework, or Windows OCR) reads the words. An on-device model describes the picture: Apple's foundation model on a Mac, and Qwen3-VL 2B (or Phi-3.5-vision, if you prefer) on Windows. For speed, it starts describing the first frame while still checking whether the sticker is animated.
-4. **Make stickers (when you ask).** The on-device language model plans the caption and four picture ideas; [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) draws them with SDXS-512 or SD-Turbo (Metal on a Mac, Vulkan or the processor on Windows); Vision on a Mac, or ISNet on Windows, cuts out the subject; StickerSense writes the words and adds the border, then describes the result like any sticker.
-5. **Speak.** On a Mac the description goes to VoiceOver. On Windows it goes to NVDA or JAWS directly, to Narrator through UI Automation, or to the Windows voice if no screen reader is running. Either way, you hear it in your own voice settings and it reaches your braille display.
+3. **Read and describe.** The system's own text recognition (Apple's Vision framework, or Windows OCR) reads the words. An on-device model describes the picture: Apple's foundation model on a Mac, and Qwen3-VL 2B (or Phi-3.5-vision, if you prefer) on Windows. To save time, it starts describing the first frame while it's still checking whether the sticker moves.
+4. **Make stickers, when you ask.** The on-device language model plans the caption and four picture ideas. [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) draws them with SDXS-512 or SD-Turbo (Metal on a Mac, Vulkan or the processor on Windows). Vision on a Mac, or ISNet on Windows, cuts out the subject. StickerSense writes the words and adds the border, then describes the result like any other sticker.
+5. **Speak.** On a Mac the description goes to VoiceOver. On Windows it goes to NVDA or JAWS directly, to Narrator through UI Automation, or to the Windows voice if no screen reader is running. Either way, you hear it with your own voice settings, and it reaches your braille display.
 
 ## Privacy
 
 - Pictures are described, and stickers made, on your computer. The only exception is an optional Mac setting that sends detailed descriptions to Apple's Private Cloud Compute, and it's off unless you turn it on.
 - Photos are never saved. Only stickers and GIFs go into your local library, with names and times painted out.
-- Your GIPHY key lives in the Mac Keychain, or encrypted for your Windows account, not in a settings file.
+- Your GIPHY key is kept in the Mac Keychain, or encrypted for your Windows account, not in a settings file.
 - The activity log records what was said and how long it took. It never records images or your messages.
 
 ## Build it yourself
@@ -110,7 +126,7 @@ It also stays out of your screen reader's way. It only checks what you're on aft
 
 You'll need Xcode 27 and XcodeGen (`brew install xcodegen`).
 
-1. Find your signing certificate with `security find-identity -v -p codesigning`. Use one marked valid; the build script rejects revoked ones, because macOS treats an app signed with a revoked certificate as malware and offers to throw it away.
+1. Find your signing certificate with `security find-identity -v -p codesigning`. Use one marked valid. The build script rejects revoked certificates, because macOS treats an app signed with one as malware and offers to throw it away.
 2. Build and install:
    ```
    STICKERSENSE_SIGN_IDENTITY="<certificate SHA-1>" apple/scripts/build-mac.sh
@@ -126,15 +142,15 @@ dotnet test windows\tests\StickerSense.Core.Tests
 powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1 -Zip
 ```
 
-The second command publishes StickerSense with the fast model and NVDA's helper file into `windows\publish`, ready to unzip anywhere. [windows/README.md](windows/README.md) has the details, including `StickerSense.exe --self-test` for checking a PC.
+The second command publishes StickerSense with the fast model, the sticker maker and NVDA's helper file into `windows\publish`, ready to unzip anywhere. [windows/README.md](windows/README.md) has the details, including `StickerSense.exe --self-test` for checking a PC.
 
 ### Releases
 
-`scripts/release.sh <version>`, run on a Mac, does both platforms: it runs the tests, builds and signs the Mac app, builds the Windows zips on a Windows PC over SSH (`STICKERSENSE_WINDOWS_HOST`), publishes the GitHub release and updates the Homebrew cask. Add `--dry-run` to build everything without publishing.
+`scripts/release.sh <version>`, run on a Mac, does both platforms. It runs the tests, builds and signs the Mac app, publishes the GitHub release, and updates the Homebrew cask. The Windows zips are built on a Windows PC over SSH (`STICKERSENSE_WINDOWS_HOST`), or on GitHub Actions with `STICKERSENSE_WINDOWS_CI=1`. Add `--dry-run` to build everything without publishing.
 
 ## Repository layout
 
-- `apple/StickerKit`: the shared Swift package (describing, caching, fingerprints, the library, picker search, GIPHY), with unit tests and real on-device model tests.
+- `apple/StickerKit`: the shared Swift package (describing, caching, fingerprints, the library, picker search, GIPHY, sticker art), with unit tests and real on-device model tests.
 - `apple/Mac`: the Mac app.
 - `apple/iOS*`: the iPhone and iPad app, share extension and Control Center controls.
 - `apple/project.yml`: the XcodeGen spec. The Xcode project is generated, so it isn't committed.
@@ -146,33 +162,29 @@ To run the tests: `swift test` in `apple/StickerKit` (add `STICKERSENSE_MODEL_TE
 
 ## Contributing
 
-Bug reports from screen reader users help the most. Was something slow, wrong, too chatty or silent? Open an issue and include the relevant lines from the activity log: `~/Library/Logs/StickerSense.log` on a Mac, or `%LOCALAPPDATA%\StickerSense\StickerSense.log` on Windows. On Windows, the output of `StickerSense.exe --self-test` helps too.
+Bug reports from screen reader users help the most. Was something slow, wrong, too chatty or silent? Open an issue with the relevant lines from the activity log: `~/Library/Logs/StickerSense.log` on a Mac, or `%LOCALAPPDATA%\StickerSense\StickerSense.log` on Windows. On Windows, the output of `StickerSense.exe --self-test` helps too.
 
 ## Donate
 
-StickerSense has no ads, no account, no subscription and no analytics, and it describes everything on your own computer. This section is the only part of the project that wants anything from you.
+StickerSense stays free. What costs money is getting rid of the warnings on first launch: Apple's notarization makes "Open Anyway" disappear and lets StickerSense into Homebrew's main cask list, and a Windows code-signing certificate does the same for "Windows protected your PC".
 
 Notarization fund: **$0 of $99**.
 
-| Send | What it does |
-|---|---|
-| [A sticker, $3](https://paypal.me/theblindiephoenix/3USD) | Covers one coffee and one bug fix, in that order |
-| [A GIF, $5](https://paypal.me/theblindiephoenix/5USD) | About the price of a café coffee, which lasts an afternoon. A cached sticker description lasts forever |
-| [A whole sticker pack, $20](https://paypal.me/theblindiephoenix/20USD) | Fuels a whole feature, from the first idea to the 2 AM bug it ships with |
-| [A year of notarization, $99](https://paypal.me/theblindiephoenix/99USD) | Goes toward Apple's developer fee, so StickerSense can be notarized: "Open Anyway" disappears for everyone, and it can join Homebrew's main cask list |
-| [Your own amount](https://paypal.me/theblindiephoenix) | All currencies are converted to coffee at a fair rate |
+- [Send a sticker, $3](https://paypal.me/theblindiephoenix/3USD): pays for a bug fix.
+- [Send a GIF, $5](https://paypal.me/theblindiephoenix/5USD): pays for a bug fix, with motion.
+- [Send a voice note, $20](https://paypal.me/theblindiephoenix/20USD): pays for a whole feature. Like most voice notes, it takes longer than anyone expected.
+- [Cover Apple's fee for a year, $99](https://paypal.me/theblindiephoenix/99USD): notarization, so "Open Anyway" goes away for everyone.
+- [Pick any amount](https://paypal.me/theblindiephoenix), in any currency.
 
-After notarization, the next goal is a Windows code-signing certificate, so "Windows protected your PC" goes the same way as "Open Anyway".
+If StickerSense ever kept you from replying "lol" to a crying sticker, that's worth about one sticker. Can't spare the money? Star the repo instead. It's GitHub's thumbs up, without the passive aggression.
 
-If StickerSense has ever told you what a sticker meant before you replied, that's about one coffee's worth. Can't spare the money? A star on the repo costs nothing, and yes, someone checks.
+### Thanks to
 
-### Fueled by
-
-Add a note to your PayPal payment if you'd like your name here.
+Want your name here? Say so in the note on your PayPal payment.
 
 <!-- donors: scripts/donation.sh adds names below this line -->
 Nobody has sent a sticker yet, so the first name here could be yours.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). On Windows, the release also includes Qwen3-VL 2B (Apache 2.0) and NVDA's controller client (LGPL 2.1); [windows/README.md](windows/README.md) lists them. Both apps include stable-diffusion.cpp (MIT) for making stickers. Its models are downloaded on first use: SDXS-512 (OpenRAIL++), or SD-Turbo if you choose it (Stability AI Community License; powered by Stability AI), and on Windows ISNet (Apache 2.0).
+MIT. See [LICENSE](LICENSE). On Windows, the release also includes Qwen3-VL 2B (Apache 2.0) and NVDA's controller client (LGPL 2.1); [windows/README.md](windows/README.md) lists them. Both apps include stable-diffusion.cpp (MIT) for making stickers. Its models are downloaded on first use: SDXS-512 (OpenRAIL++), or SD-Turbo if you choose it (Stability AI Community License; powered by Stability AI), and on Windows ISNet (Apache 2.0). The Mac app writes WhatsApp stickers with libwebp (BSD).
