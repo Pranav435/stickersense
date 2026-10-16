@@ -9,7 +9,10 @@
 # Environment:
 #   STICKERSENSE_SIGN_IDENTITY   Mac signing certificate (name or SHA-1). Required.
 #   STICKERSENSE_WINDOWS_HOST    user@host of a Windows PC with OpenSSH Server, for the Windows zips.
-#                                Required unless STICKERSENSE_SKIP_WINDOWS=1.
+#                                Required unless STICKERSENSE_WINDOWS_CI=1 or STICKERSENSE_SKIP_WINDOWS=1.
+#   STICKERSENSE_WINDOWS_CI=1    Build the Windows zips on GitHub Actions instead (release-windows.yml
+#                                attaches them to the release); this waits for it and checks them.
+#   STICKERSENSE_WHATS_NEW       A Markdown file to put at the top of the release notes.
 #   STICKERSENSE_DOTNET          dotnet command for the Windows core tests on this Mac (default: dotnet).
 #
 # Needs the GitHub CLI, signed in (gh auth login).
@@ -27,8 +30,16 @@ fail() { echo "$1" >&2; exit 1; }
 git rev-parse -q --verify "refs/tags/v$version" >/dev/null && fail "v$version already exists."
 gh auth status >/dev/null 2>&1 || fail "Sign in to GitHub first: gh auth login"
 [[ -n "${STICKERSENSE_SIGN_IDENTITY:-}" ]] || fail "Set STICKERSENSE_SIGN_IDENTITY to your Mac signing certificate."
-if [[ "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 && -z "${STICKERSENSE_WINDOWS_HOST:-}" ]]; then
-  fail "Set STICKERSENSE_WINDOWS_HOST (user@host of a Windows PC) or STICKERSENSE_SKIP_WINDOWS=1."
+windows_ci="${STICKERSENSE_WINDOWS_CI:-}"
+if [[ "$windows_ci" != 1 && "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 && -z "${STICKERSENSE_WINDOWS_HOST:-}" ]]; then
+  fail "Set STICKERSENSE_WINDOWS_HOST (user@host of a Windows PC), STICKERSENSE_WINDOWS_CI=1 or STICKERSENSE_SKIP_WINDOWS=1."
+fi
+whats_new=""
+if [[ -n "${STICKERSENSE_WHATS_NEW:-}" ]]; then
+  [[ -f "$STICKERSENSE_WHATS_NEW" ]] || fail "No such file: $STICKERSENSE_WHATS_NEW"
+  whats_new="$(cat "$STICKERSENSE_WHATS_NEW")
+
+"
 fi
 
 OUT="${STICKERSENSE_RELEASE_DIR:-$HOME/Library/Caches/StickerSense-release}"
@@ -52,7 +63,7 @@ assets=("$OUT/StickerSense-Mac.zip")
 
 # Windows.
 win_sums=""
-if [[ "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 ]]; then
+if [[ "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 && "$windows_ci" != 1 ]]; then
   windows/scripts/build-release-remote.sh "$STICKERSENSE_WINDOWS_HOST" "$OUT" "$version"
   for zip in StickerSense-Windows-x64.zip StickerSense-Windows-x64-app-only.zip; do
     size=$(stat -f %z "$OUT/$zip")
@@ -63,7 +74,7 @@ if [[ "${STICKERSENSE_SKIP_WINDOWS:-}" != 1 ]]; then
   done
 fi
 
-notes="StickerSense describes stickers and GIFs out loud for screen reader users, on your own computer.
+notes="${whats_new}StickerSense describes stickers and GIFs out loud for screen reader users, on your own computer.
 
 ## Mac
 
@@ -100,6 +111,8 @@ Free, no ads, no tracking. If it saved you from answering a crying sticker with 
 
 - \`StickerSense-Mac.zip\`: \`$mac_sum\`
 $win_sums"
+[[ "$windows_ci" == 1 ]] && notes+="- The Windows zips are built by GitHub Actions; GitHub lists each file's SHA-256 next to it.
+"
 
 if [[ "$dry_run" == "--dry-run" ]]; then
   printf 'Dry run. Built:\n'; ls -la "${assets[@]}"
@@ -152,4 +165,22 @@ EOF
 git -C "$tap" add -A
 git -C "$tap" commit -qm "StickerSense $version"
 git -C "$tap" push -q
-echo "Released v$version for Mac and Windows, and updated the Homebrew cask."
+echo "Released v$version and updated the Homebrew cask."
+
+if [[ "$windows_ci" == 1 ]]; then
+  echo "Waiting for GitHub Actions to build and attach the Windows zips…"
+  run_id=""
+  for _ in {1..30}; do
+    run_id="$(gh run list --workflow release-windows.yml --event release --limit 5 --json databaseId,headBranch \
+      --jq "map(select(.headBranch == \"v$version\")) | .[0].databaseId // empty")"
+    [[ -n "$run_id" ]] && break
+    sleep 10
+  done
+  [[ -n "$run_id" ]] || fail "The Windows release workflow didn't start. Run it by hand: gh workflow run release-windows.yml -f tag=v$version"
+  gh run watch "$run_id" --exit-status --interval 30 >/dev/null || fail "The Windows release workflow failed: gh run view $run_id --log-failed"
+  attached="$(gh release view "v$version" --json assets --jq '[.assets[].name] | join(" ")')"
+  for zip in StickerSense-Windows-x64.zip StickerSense-Windows-x64-app-only.zip; do
+    [[ " $attached " == *" $zip "* ]] || fail "$zip isn't attached to v$version."
+  done
+  echo "The Windows zips are attached to v$version."
+fi

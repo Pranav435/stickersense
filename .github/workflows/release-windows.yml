@@ -1,0 +1,69 @@
+# Builds the Windows release zips on GitHub's Windows runners and attaches them to the release,
+# so a release doesn't need a Windows PC: scripts/release.sh publishes the release with the Mac
+# zip (STICKERSENSE_WINDOWS_CI=1), and this adds StickerSense-Windows-x64.zip (app, sticker
+# maker and description model) and StickerSense-Windows-x64-app-only.zip.
+name: Windows release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to, like v1.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  zips:
+    name: Build and attach the Windows zips
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Unit tests
+        run: dotnet test windows/tests/StickerSense.Core.Tests --configuration Release
+
+      - name: Package the zips
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $out = Join-Path $env:RUNNER_TEMP 'release'
+          New-Item -ItemType Directory $out -Force | Out-Null
+          powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1 -Zip -Version $version -Output (Join-Path $out 'StickerSense-Windows-x64')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -ExecutionPolicy Bypass -File windows\scripts\package-release.ps1 -Zip -SkipModel -Version $version -Output (Join-Path $out 'StickerSense-Windows-x64-app-only')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem $out -Filter *.zip | ForEach-Object {
+            if ($_.Length -ge 2000000000) { throw "$($_.Name) is over GitHub's 2 GB limit." }
+            Write-Host "$($_.Name): $([math]::Round($_.Length / 1MB)) MB, SHA-256 $((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())"
+          }
+
+      - name: Check the packaged app
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:RUNNER_TEMP 'release\StickerSense-Windows-x64'
+          $exe = Join-Path $app 'StickerSense.exe'
+          if (-not (Test-Path (Join-Path $app 'sd\sd-cli.exe'))) { throw 'The sticker maker is missing from the release.' }
+          if (-not (Test-Path (Join-Path $app 'models\qwen3-vl-2b\genai_config.json'))) { throw 'The description model is missing from the release.' }
+          $info = (Get-Item $exe).VersionInfo
+          Write-Host "StickerSense.exe $($info.ProductVersion)"
+          if (-not $info.ProductVersion.StartsWith($env:TAG.TrimStart('v'))) { throw "StickerSense.exe isn't stamped with $env:TAG." }
+
+      - name: Attach to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'release'
+          gh release upload $env:TAG (Join-Path $out 'StickerSense-Windows-x64.zip') (Join-Path $out 'StickerSense-Windows-x64-app-only.zip') --clobber --repo $env:GITHUB_REPOSITORY
